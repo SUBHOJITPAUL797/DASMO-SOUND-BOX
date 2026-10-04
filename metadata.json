@@ -1,0 +1,6 @@
+{
+  "name": "dasmo sound box",
+  "description": "Hear every UPI payment — instantly, loudly, every time. Background payment sound box.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

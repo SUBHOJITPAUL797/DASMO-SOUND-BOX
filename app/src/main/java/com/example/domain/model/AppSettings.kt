@@ -1,0 +1,33 @@
+package com.example.domain.model
+
+data class AppSettings(
+    val isEnabled: Boolean = true,
+    val language: String = "hi-IN",
+    val speechRate: Float = 1.0f,
+    val voicePitch: Float = 1.0f,
+    val voiceName: String = "",
+    val chimeEnabled: Boolean = true,
+    val announcePayerName: Boolean = false,
+    val announcementVolume: Int = 100,
+    val dedupWindowSeconds: Int = 30,
+    val smsDetectionEnabled: Boolean = true,
+    val notificationDetectionEnabled: Boolean = true,
+    val customPrefixEnabled: Boolean = false,
+    val customPrefix: String = "",
+    val customSuffixEnabled: Boolean = true,
+    val customSuffix: String = "Thank you!",
+    val customTemplates: String = "[]",
+    val activeTemplateIndex: Int = 0,
+    val theme: String = "SYSTEM",
+    val hasCompletedOnboarding: Boolean = false,
+    val subscriptionStatus: String = "FREE",
+    val subscriptionExpiryMs: Long = 0,
+    val lastSubscriptionCheckMs: Long = 0,
+    val disabledAppPackages: Set<String> = emptySet(),
+    val chimeSound: String = "PAYTM_DING_DONG",
+    val bilingualEnabled: Boolean = false,
+    val flashAlertEnabled: Boolean = false,
+    val minAmountThreshold: Double = 0.0,
+    val shopUpiId: String = "",
+    val shopName: String = "My Shop"
+)
