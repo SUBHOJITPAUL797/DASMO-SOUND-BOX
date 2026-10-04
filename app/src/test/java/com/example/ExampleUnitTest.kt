@@ -102,4 +102,41 @@ class ExampleUnitTest {
         assertTrue(url.contains("am=250.00"))
         assertTrue(url.contains("cu=INR"))
     }
+
+    @Test
+    fun testAppUpdateManagerVersionTagCleaning() {
+        val manager = com.example.util.update.AppUpdateManager.getInstance()
+        assertEquals("1.0.1", manager.cleanVersionTag("v1.0.1"))
+        assertEquals("1.0.1", manager.cleanVersionTag("V1.0.1"))
+        assertEquals("2.0.0", manager.cleanVersionTag("2.0.0"))
+        assertEquals("1.2", manager.cleanVersionTag(" v1.2 "))
+    }
+
+    @Test
+    fun testAppUpdateManagerVersionComparison() {
+        val manager = com.example.util.update.AppUpdateManager.getInstance()
+        // Newer semantic version
+        assertTrue(manager.isNewerVersion(currentVer = "1.0", currentCode = 1, latestVer = "1.0.1", latestCode = 2))
+        assertTrue(manager.isNewerVersion(currentVer = "1.0.0", currentCode = 1, latestVer = "1.1.0", latestCode = 1))
+        assertTrue(manager.isNewerVersion(currentVer = "1.0", currentCode = 1, latestVer = "2.0", latestCode = 5))
+
+        // Same version
+        assertFalse(manager.isNewerVersion(currentVer = "1.0", currentCode = 1, latestVer = "1.0", latestCode = 1))
+        assertFalse(manager.isNewerVersion(currentVer = "1.0.1", currentCode = 2, latestVer = "1.0.1", latestCode = 2))
+
+        // Older version
+        assertFalse(manager.isNewerVersion(currentVer = "1.1.0", currentCode = 3, latestVer = "1.0.5", latestCode = 2))
+    }
+
+    @Test
+    fun testAppUpdateManagerExtractVersionCode() {
+        val manager = com.example.util.update.AppUpdateManager.getInstance()
+        val markdownBody = """
+            ## Release v1.0.1
+            - versionCode: 2
+            - Fix notification listener
+        """.trimIndent()
+        assertEquals(2, manager.extractVersionCode(markdownBody, "1.0.1"))
+    }
 }
+

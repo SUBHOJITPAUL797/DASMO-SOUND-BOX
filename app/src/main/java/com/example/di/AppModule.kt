@@ -14,6 +14,7 @@ import com.example.domain.usecase.SaveTransactionUseCase
 import com.example.service.PaymentEventBus
 import com.example.util.DedupEngine
 import com.example.util.TtsEngine
+import com.example.util.update.AppUpdateManager
 
 object AppModule {
     @Volatile private var database: AppDatabase? = null
@@ -24,6 +25,7 @@ object AppModule {
     @Volatile var paymentEventBus: PaymentEventBus? = null
     @Volatile var dedupEngine: DedupEngine? = null
     @Volatile var ttsEngine: TtsEngine? = null
+    @Volatile var updateManager: AppUpdateManager? = null
 
     @Synchronized
     fun getOrInit(context: Context): AppModule {
@@ -56,5 +58,7 @@ object AppModule {
         paymentEventBus = PaymentEventBus()
         dedupEngine = DedupEngine(db.dedupDao(), setRepo)
         ttsEngine = TtsEngine(appContext)
+        updateManager = AppUpdateManager.getInstance()
     }
 }
+

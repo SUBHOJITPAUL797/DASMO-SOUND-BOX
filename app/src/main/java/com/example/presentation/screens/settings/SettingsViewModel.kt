@@ -1,5 +1,6 @@
 package com.example.presentation.screens.settings
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.di.AppModule
@@ -180,5 +181,62 @@ class SettingsViewModel : ViewModel() {
     fun testAnnouncement() {
         previewVoiceSample()
     }
+
+    // --- GitHub Releases In-App Update Engine ---
+
+    private val updateManager: com.example.util.update.AppUpdateManager =
+        AppModule.updateManager ?: com.example.util.update.AppUpdateManager.getInstance()
+
+    private val _updateState = MutableStateFlow<com.example.util.update.UpdateStatus>(
+        com.example.util.update.UpdateStatus.Idle
+    )
+    val updateState: StateFlow<com.example.util.update.UpdateStatus> = _updateState.asStateFlow()
+
+    fun checkForUpdates(context: Context) {
+        viewModelScope.launch {
+            _updateState.value = com.example.util.update.UpdateStatus.Checking
+            val result = updateManager.checkForUpdate(context)
+            _updateState.value = result
+        }
+    }
+
+    fun downloadAndInstallUpdate(context: Context, updateInfo: com.example.util.update.AppUpdateInfo) {
+        viewModelScope.launch {
+            try {
+                _updateState.value = com.example.util.update.UpdateStatus.Downloading(
+                    updateInfo = updateInfo,
+                    progressPercent = 0,
+                    bytesDownloaded = 0,
+                    totalBytes = updateInfo.apkSizeBytes
+                )
+                val apkFile = updateManager.downloadApk(context, updateInfo) { progressStatus ->
+                    _updateState.value = progressStatus
+                }
+                _updateState.value = com.example.util.update.UpdateStatus.ReadyToInstall(
+                    updateInfo = updateInfo,
+                    apkFile = apkFile
+                )
+                // Trigger installer immediately once downloaded
+                updateManager.installApk(context, apkFile)
+            } catch (e: Exception) {
+                _updateState.value = com.example.util.update.UpdateStatus.Error(
+                    message = e.localizedMessage ?: "Failed to download update."
+                )
+            }
+        }
+    }
+
+    fun installApk(context: Context, apkFile: java.io.File) {
+        updateManager.installApk(context, apkFile)
+    }
+
+    fun openReleaseInBrowser(context: Context, url: String) {
+        updateManager.openReleaseInBrowser(context, url)
+    }
+
+    fun dismissUpdate() {
+        _updateState.value = com.example.util.update.UpdateStatus.Idle
+    }
 }
+
 

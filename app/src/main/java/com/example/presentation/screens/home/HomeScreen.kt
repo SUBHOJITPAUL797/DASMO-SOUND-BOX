@@ -33,12 +33,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.database.entity.TransactionEntity
 import com.example.domain.model.AnnouncementStatus
+import com.example.di.AppModule
 import com.example.util.AnnouncementHelper
 import com.example.util.BluetoothHelper
 import com.example.util.PermissionHelper
+import com.example.util.update.AppUpdateInfo
+import com.example.util.update.AppUpdateManager
+import com.example.util.update.UpdateStatus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+
 
 @Composable
 fun AudioEqualizerWave(isPlaying: Boolean, tintColor: Color = MaterialTheme.colorScheme.primary) {
@@ -99,12 +105,27 @@ fun HomeScreen(
     var isBtConnected by remember { mutableStateOf(BluetoothHelper.isBluetoothAudioConnected(context)) }
     var showQrDialog by remember { mutableStateOf(false) }
     var isReplayingVoice by remember { mutableStateOf(false) }
+    var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
 
     LaunchedEffect(Unit) {
         hasNotificationPermission = PermissionHelper.isNotificationListenerEnabled(context)
         isBatteryOptimized = !PermissionHelper.isIgnoringBatteryOptimizations(context)
         isBtConnected = BluetoothHelper.isBluetoothAudioConnected(context)
+
+        // Silent background check for updates from connected GitHub repo
+        scope.launch(Dispatchers.IO) {
+            try {
+                val manager = AppModule.updateManager ?: AppUpdateManager.getInstance()
+                val result = manager.checkForUpdate(context)
+                if (result is UpdateStatus.UpdateAvailable) {
+                    availableUpdate = result.updateInfo
+                }
+            } catch (_: Exception) {
+                // Silently ignore network failures on home launch
+            }
+        }
     }
+
 
     Scaffold { innerPadding ->
         LazyColumn(
@@ -235,7 +256,45 @@ fun HomeScreen(
                 }
             }
 
+            // GitHub In-App Update Banner
+            if (availableUpdate != null) {
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigateToSettings() },
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🚀", style = MaterialTheme.typography.titleLarge)
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Update Available: v${availableUpdate?.latestVersion}",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    "Tap to review changelog and download APK",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                            FilledTonalButton(onClick = onNavigateToSettings) {
+                                Text("Update")
+                            }
+                        }
+                    }
+                }
+            }
+
             // Service Power Toggle Hero
+
             item {
                 StatusHeroCard(
                     isActive = uiState.appSettings.isEnabled,
