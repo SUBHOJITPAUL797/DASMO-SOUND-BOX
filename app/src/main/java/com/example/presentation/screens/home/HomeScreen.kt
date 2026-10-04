@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -353,7 +355,7 @@ fun HomeScreen(
                             modifier = Modifier.padding(14.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(Icons.Default.TrendingUp, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Text("Sales Chart", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                             Text("Reports & CSV", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -622,7 +624,7 @@ fun LastPaymentCard(
                         onClick = onDaySummary,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("दिन का हिसाब", fontWeight = FontWeight.Bold)
                     }
@@ -633,7 +635,7 @@ fun LastPaymentCard(
                     onClick = onDaySummary,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Announce Day Summary (दिन का हिसाब)")
                 }
@@ -729,7 +731,7 @@ fun ActivityRow(
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
-                        Icons.Default.VolumeUp,
+                        Icons.AutoMirrored.Filled.VolumeUp,
                         contentDescription = "Replay",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp)

@@ -11,12 +11,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -104,7 +104,7 @@ fun KioskScreen(
                 ),
                 navigationIcon = {
                     IconButton(onClick = onExit) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Exit Kiosk")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Exit Kiosk")
                     }
                 },
                 title = {
@@ -426,7 +426,7 @@ fun KioskScreen(
                         ),
                         enabled = !isSpeaking
                     ) {
-                        Icon(Icons.Default.VolumeUp, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = "Day Voice Report",

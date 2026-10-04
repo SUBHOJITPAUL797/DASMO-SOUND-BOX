@@ -2,11 +2,11 @@ package com.example.presentation.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -15,7 +15,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -47,11 +46,36 @@ fun AppNavGraph() {
 
     val items = listOf(
         Triple(Routes.HOME, "Home", Icons.Default.Home),
-        Triple(Routes.HISTORY, "History", Icons.Default.List),
-        Triple(Routes.ANALYTICS, "Analytics", Icons.Default.TrendingUp),
+        Triple(Routes.HISTORY, "History", Icons.AutoMirrored.Filled.List),
+        Triple(Routes.ANALYTICS, "Analytics", Icons.AutoMirrored.Filled.TrendingUp),
         Triple(Routes.LEDGER, "Cashbook", Icons.Default.Edit),
         Triple(Routes.SETTINGS, "Settings", Icons.Default.Settings)
     )
+
+    val navigateToTab: (String) -> Unit = { targetRoute ->
+        if (currentDestination?.route != targetRoute) {
+            if (targetRoute == Routes.HOME) {
+                // When navigating to Home, pop everything back to Home so no child/stale sub-stack is restored
+                val popped = navController.popBackStack(Routes.HOME, inclusive = false)
+                if (!popped) {
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            inclusive = false
+                        }
+                        launchSingleTop = true
+                    }
+                }
+            } else {
+                navController.navigate(targetRoute) {
+                    popUpTo(navController.graph.findStartDestination().id) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            }
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -61,16 +85,8 @@ fun AppNavGraph() {
                         NavigationBarItem(
                             icon = { Icon(icon, contentDescription = title) },
                             label = { Text(title) },
-                            selected = currentDestination?.hierarchy?.any { it.route == route } == true,
-                            onClick = {
-                                navController.navigate(route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
+                            selected = currentDestination?.route == route,
+                            onClick = { navigateToTab(route) }
                         )
                     }
                 }
@@ -84,10 +100,10 @@ fun AppNavGraph() {
         ) {
             composable(Routes.HOME) {
                 HomeScreen(
-                    onNavigateToHistory = { navController.navigate(Routes.HISTORY) },
-                    onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
+                    onNavigateToHistory = { navigateToTab(Routes.HISTORY) },
+                    onNavigateToSettings = { navigateToTab(Routes.SETTINGS) },
                     onNavigateToKiosk = { navController.navigate(Routes.KIOSK) },
-                    onNavigateToAnalytics = { navController.navigate(Routes.ANALYTICS) }
+                    onNavigateToAnalytics = { navigateToTab(Routes.ANALYTICS) }
                 )
             }
             composable(Routes.HISTORY) {

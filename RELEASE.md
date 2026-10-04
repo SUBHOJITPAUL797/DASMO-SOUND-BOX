@@ -32,11 +32,11 @@
 > The In-App Updater parses the `versionCode`, tag, and changelog headers automatically.
 
 ```markdown
-# 🔊 DASMO Sound Box v1.0.1 — Smart UPI Audio & In-App Update Engine
+# 🔊 DASMO Sound Box v1.0.2 — Navigation Stability & System Reverification Fix
 
 ### 🏷️ Metadata
-- **Version:** `v1.0.1`
-- **versionCode:** `2`
+- **Version:** `v1.0.2`
+- **versionCode:** `3`
 - **Package:** `com.aistudio.soundbox.dsmo`
 - **Channel:** Production (Stable)
 - **Minimum OS:** Android 7.0 (API Level 24)
@@ -47,16 +47,14 @@
 
 ### 🚀 Highlights & What's New
 
-- **🔄 GitHub-Connected In-App Auto Updates:** 
-  The app now connects directly to GitHub Releases (`SUBHOJITPAUL797/DASMO-SOUND-BOX`). Merchants can check for updates, view real-time download progress, and install the new APK directly without leaving the app!
-- **⚡ Zero-Latency UPI Sound Alerts:** 
-  Optimized background audio pipeline with instant chime synthesis and low-latency speech playback for Paytm, PhonePe, Google Pay, BHIM, BharatPe, Cred, and bank SMSs.
-- **🌐 12 Indian Languages & Dual-Language Announcements:** 
-  Seamless bilingual payment announcements (e.g., *"₹100 received on Paytm QR"* followed by Hindi/regional translation).
-- **🛡️ 100% Offline Multi-Level Deduplication Engine:** 
-  Time-window deduplication prevents duplicate voice alerts when both an SMS and a push notification arrive for the same payment.
-- **🔋 Bulletproof Background Keep-Alive Service:** 
-  Integrated foreground service with sticky restart, watchdog timer receiver, and automated battery optimization bypass guides.
+- **🧭 Fixed Navigation Backstack Bug:** 
+  Resolved an issue in Jetpack Navigation Compose where switching between Analytics and Settings and tapping the Home tab would restore a stale child backstack and trap the user on the Analytics tab. Tapping Home now cleanly pops to the root Home dashboard every time.
+- **⚡ Harmonized In-Screen Tab Routing:** 
+  Quick action cards on Home (*Sales Chart*, *Settings Update*, and *Live Activity*) now route through unified single-top navigation rules identical to the bottom navigation bar.
+- **🧼 App-Wide Reverification & Zero-Warning Cleanliness:** 
+  Modernized all UI vector iconography to Material 3 AutoMirrored standards (`List`, `TrendingUp`, `VolumeUp`, `ArrowBack`, `Send`), updated ExposedDropdownMenu `menuAnchor` overloads, and upgraded Room database migration parameters.
+- **🧪 Automated Route Integrity Test Suite:** 
+  Integrated comprehensive navigation and version comparator unit tests verifying all top-level destinations and route stability.
 
 ---
 
@@ -64,38 +62,31 @@
 
 | File | Type | Target Architecture | Size | Checksum (SHA-256) |
 | :--- | :--- | :--- | :--- | :--- |
-| [`dasmo-soundbox-v1.0.1.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.1/dasmo-soundbox-v1.0.1.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 15.2 MB | `cf5063824685f5c730158dc889b47443b8e77d79c26e70a9a1423459fcd0c74a` |
-
+| [`dasmo-soundbox-v1.0.2.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.2/dasmo-soundbox-v1.0.2.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 14.5 MB | `96841291ec0b4acacc97ed4eac1a7fc5c6e6a40753005ce20e65ac5801097f21` |
 
 ---
 
 ### 🛠️ Detailed Changelog
 
-#### 🔄 In-App Updater
-- Added `AppUpdateManager` with asynchronous GitHub Releases API integration (`https://api.github.com/repos/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/latest`).
-- Live chunked download stream with real-time percentage and downloaded byte metrics.
-- Seamless Android `FileProvider` package installer invocation with `REQUEST_INSTALL_PACKAGES` permission support.
-- One-tap browser fallback button to view full release on GitHub.
-- Silent background update alert chip on the merchant dashboard.
+#### 🧭 Navigation & UI Architecture
+- Fixed `AppNavGraph.kt` tab backstack popping when navigating to `Routes.HOME`.
+- Replaced deprecated icon references with `Icons.AutoMirrored.Filled.*` across `HomeScreen`, `AnalyticsScreen`, `KioskScreen`, `LedgerScreen`, and `SettingsScreen`.
+- Updated `SettingsScreen` dropdown fields to `Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)`.
+- Replaced deprecated `Locale(String)` constructors in `TtsEngine` with modern `Locale.forLanguageTag()`.
+- Updated `AppModule.kt` Room builder with `fallbackToDestructiveMigration(true)`.
 
-#### 🔊 Audio & Speech Processing
-- Added custom prefix and suffix voice announcements (e.g., *"Welcome to Dasmo Store! ₹500 received. Visit again!"*).
-- Customizable chime sound presets (Classic Soundbox Bell, Cash Register Ka-Ching, Modern Digital Beep, Minimal Gentle Chime).
-- Audio focus retention so high-volume market noise never drowns out transaction alerts.
-
-#### 🛡️ Reliability & Security
-- Added 4-digit admin security lock preventing unauthorized staff from altering shop UPI IDs or disabling sound alerts.
-- Room database with destructive migration fallback and optimized WAL mode.
+#### 🧪 Testing & Verification
+- Added `testRoutesIntegrity()` unit test to verify distinctness and persistence of all application routes.
 ```
 
 ---
 
-## 🚀 Current Production Release: v1.0.1
+## 🚀 Current Production Release: v1.0.2
 
 ### Version Summary
-- **Tag:** `v1.0.1`
-- **Version Code:** `2`
-- **Version Name:** `1.0.1`
+- **Tag:** `v1.0.2`
+- **Version Code:** `3`
+- **Version Name:** `1.0.2`
 - **Status:** General Availability (GA)
 - **Repository:** `SUBHOJITPAUL797/DASMO-SOUND-BOX`
 
@@ -257,6 +248,15 @@ The GitHub Action will automatically:
 ---
 
 ## 📜 Changelog History
+
+### [1.0.2] - 2026-10-04
+- **Fixed:** Navigation bug where tapping Home tab after Analytics/Settings restored Analytics instead of Home.
+- **Improved:** Unified tab routing between bottom navigation bar and dashboard action cards.
+- **Improved:** Replaced deprecated UI icon calls with Material 3 AutoMirrored vector icons across all screens.
+- **Improved:** Updated ExposedDropdownMenu to use `MenuAnchorType.PrimaryNotEditable`.
+- **Improved:** Replaced deprecated `Locale` constructors in `TtsEngine` with `Locale.forLanguageTag()`.
+- **Improved:** Modernized Room database builder migration parameters.
+- **Added:** Automated unit tests in `ExampleUnitTest.kt` for navigation routes and tag validation.
 
 ### [1.0.1] - 2026-10-04
 - **Added:** Decentralized In-App Updater directly backed by GitHub Releases API.

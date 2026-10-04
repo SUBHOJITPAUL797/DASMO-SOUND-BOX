@@ -9,9 +9,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -130,7 +130,7 @@ fun LedgerScreen(viewModel: LedgerViewModel = viewModel()) {
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                             ) {
-                                                Icon(Icons.Default.Send, contentDescription = "Remind", modifier = Modifier.size(14.dp))
+                                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Remind", modifier = Modifier.size(14.dp))
                                                 Spacer(Modifier.width(4.dp))
                                                 Text("Remind", style = MaterialTheme.typography.labelSmall)
                                             }

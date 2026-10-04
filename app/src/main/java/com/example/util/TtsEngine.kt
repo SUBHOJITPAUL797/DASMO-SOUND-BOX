@@ -98,13 +98,13 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
                 return true
             }
 
-            val baseLocale = Locale(locale.language)
+            val baseLocale = Locale.forLanguageTag(locale.language)
             val res2 = t.setLanguage(baseLocale)
             if (res2 >= TextToSpeech.LANG_AVAILABLE) {
                 return true
             }
 
-            t.setLanguage(Locale("en", "IN"))
+            t.setLanguage(Locale.forLanguageTag("en-IN"))
             false
         } catch (e: Exception) {
             Log.w(TAG, "Failed setLanguage: ${e.message}")

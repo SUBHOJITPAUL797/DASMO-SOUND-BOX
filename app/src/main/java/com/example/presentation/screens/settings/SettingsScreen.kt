@@ -10,13 +10,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -152,7 +152,7 @@ fun SettingsScreen(
                         label = { Text("Announcement Language") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = languageExpanded) },
                         shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
                     )
                     ExposedDropdownMenu(
                         expanded = languageExpanded,
@@ -266,7 +266,7 @@ fun SettingsScreen(
                             label = { Text("Engine Voice Model") },
                             shape = RoundedCornerShape(16.dp),
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = voiceExpanded) },
-                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
                             leadingIcon = { Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) }
                         )
                         ExposedDropdownMenu(
@@ -429,7 +429,7 @@ fun SettingsScreen(
                                 shape = RoundedCornerShape(16.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Icon(Icons.Default.VolumeUp, contentDescription = null)
+                                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Play Preview", fontWeight = FontWeight.Bold)
                             }
@@ -497,7 +497,7 @@ fun SettingsScreen(
                                                 onClick = { viewModel.playChimePreview(context, code) },
                                                 modifier = Modifier.size(36.dp)
                                             ) {
-                                                Icon(Icons.Default.VolumeUp, contentDescription = "Play tone", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Play tone", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                                             }
                                         }
                                     }

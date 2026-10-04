@@ -138,5 +138,22 @@ class ExampleUnitTest {
         """.trimIndent()
         assertEquals(2, manager.extractVersionCode(markdownBody, "1.0.1"))
     }
+
+    @Test
+    fun testRoutesIntegrity() {
+        val home = com.example.presentation.navigation.Routes.HOME
+        val history = com.example.presentation.navigation.Routes.HISTORY
+        val analytics = com.example.presentation.navigation.Routes.ANALYTICS
+        val ledger = com.example.presentation.navigation.Routes.LEDGER
+        val settings = com.example.presentation.navigation.Routes.SETTINGS
+        val customMsg = com.example.presentation.navigation.Routes.CUSTOM_MESSAGE
+        val kiosk = com.example.presentation.navigation.Routes.KIOSK
+
+        val routes = listOf(home, history, analytics, ledger, settings, customMsg, kiosk)
+        // Ensure all routes are distinct and non-empty
+        assertEquals(routes.size, routes.distinct().size)
+        assertTrue(routes.none { it.isBlank() })
+        assertEquals("home", home)
+    }
 }
 
