@@ -137,6 +137,104 @@ class ExampleUnitTest {
             - Fix notification listener
         """.trimIndent()
         assertEquals(2, manager.extractVersionCode(markdownBody, "1.0.1"))
+
+        val markdownWithBackticks = """
+            # DASMO Sound Box v1.0.2
+            - **versionCode:** `3`
+            - Performance updates
+        """.trimIndent()
+        assertEquals(3, manager.extractVersionCode(markdownWithBackticks, "1.0.2"))
+    }
+
+    @Test
+    fun testGooglePayP2PAmountOnlyWithFallbackTitle() {
+        val result = PaymentParser.parse(
+            text = "₹ 500",
+            fallbackTitle = "Rohit Sharma",
+            packageName = "com.google.android.apps.nbu.paisa.user"
+        )
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+    }
+
+    @Test
+    fun testGooglePayPaidYouWithSpace() {
+        val result = PaymentParser.parse(
+            text = "Paid you ₹ 500",
+            fallbackTitle = "Rohit Sharma",
+            packageName = "com.google.android.apps.nbu.paisa.user"
+        )
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+    }
+
+    @Test
+    fun testGooglePayNonBreakingSpace() {
+        val result = PaymentParser.parse(
+            text = "₹\u00A0500.00 from Rohit Sharma"
+        )
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+    }
+
+    @Test
+    fun testGooglePaySentPattern() {
+        val result = PaymentParser.parse("Rohit Sharma sent ₹ 500")
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+    }
+
+    @Test
+    fun testGooglePaySentYouPattern() {
+        val result = PaymentParser.parse("Rohit Sharma sent you ₹ 1,250")
+        assertTrue(result.isCredit)
+        assertEquals(1250.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+    }
+
+    @Test
+    fun testGooglePayBusinessNotification() {
+        val result = PaymentParser.parse(
+            text = "Payment received: ₹ 750",
+            fallbackTitle = "Google Pay for Business",
+            packageName = "com.google.android.apps.nbu.paisa.merchant"
+        )
+        assertTrue(result.isCredit)
+        assertEquals(750.0, result.amount!!, 0.01)
+    }
+
+    @Test
+    fun testGooglePayHindiNotification() {
+        val result = PaymentParser.parse("रोहित शर्मा ने ₹ 500 भेजे")
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("रोहित शर्मा", result.payerName)
+    }
+
+    @Test
+    fun testGooglePayPaymentRequestRejection() {
+        val result = PaymentParser.parse(
+            text = "Rohit Sharma requested ₹ 500",
+            fallbackTitle = "Rohit Sharma",
+            packageName = "com.google.android.apps.nbu.paisa.user"
+        )
+        assertFalse(result.isCredit)
+        assertNull(result.amount)
+    }
+
+    @Test
+    fun testUpdateNotificationNoFalsePositiveWhenAlreadyUpdated() {
+        val manager = com.example.util.update.AppUpdateManager.getInstance()
+        // App is already at 1.0.2 (code 3) and release is 1.0.2 (code 3) -> should be false!
+        assertFalse(manager.isNewerVersion(currentVer = "1.0.2", currentCode = 3, latestVer = "1.0.2", latestCode = 3))
+        // Release has no versionCode parsed (-1) but same semver -> false!
+        assertFalse(manager.isNewerVersion(currentVer = "1.0.2", currentCode = 3, latestVer = "1.0.2", latestCode = -1))
+        // Release has newer semver 1.0.3 -> true!
+        assertTrue(manager.isNewerVersion(currentVer = "1.0.2", currentCode = 3, latestVer = "1.0.3", latestCode = 4))
     }
 
     @Test

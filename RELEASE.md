@@ -32,11 +32,11 @@
 > The In-App Updater parses the `versionCode`, tag, and changelog headers automatically.
 
 ```markdown
-# 🔊 DASMO Sound Box v1.0.2 — Navigation Stability & System Reverification Fix
+# 🔊 DASMO Sound Box v1.0.3 — Google Pay Payment Engine & In-App Update Banner Fix
 
 ### 🏷️ Metadata
-- **Version:** `v1.0.2`
-- **versionCode:** `3`
+- **Version:** `v1.0.3`
+- **versionCode:** `4`
 - **Package:** `com.aistudio.soundbox.dsmo`
 - **Channel:** Production (Stable)
 - **Minimum OS:** Android 7.0 (API Level 24)
@@ -47,14 +47,21 @@
 
 ### 🚀 Highlights & What's New
 
-- **🧭 Fixed Navigation Backstack Bug:** 
-  Resolved an issue in Jetpack Navigation Compose where switching between Analytics and Settings and tapping the Home tab would restore a stale child backstack and trap the user on the Analytics tab. Tapping Home now cleanly pops to the root Home dashboard every time.
-- **⚡ Harmonized In-Screen Tab Routing:** 
-  Quick action cards on Home (*Sales Chart*, *Settings Update*, and *Live Activity*) now route through unified single-top navigation rules identical to the bottom navigation bar.
-- **🧼 App-Wide Reverification & Zero-Warning Cleanliness:** 
-  Modernized all UI vector iconography to Material 3 AutoMirrored standards (`List`, `TrendingUp`, `VolumeUp`, `ArrowBack`, `Send`), updated ExposedDropdownMenu `menuAnchor` overloads, and upgraded Room database migration parameters.
-- **🧪 Automated Route Integrity Test Suite:** 
-  Integrated comprehensive navigation and version comparator unit tests verifying all top-level destinations and route stability.
+- **💳 High-Precision Google Pay (GPay) Detection Engine:**
+  - Resolved an issue where incoming Google Pay payments were ignored due to Unicode non-breaking spaces (`\u00A0`, `\u202F`, `\u200B`) and currency formatting spaces (`₹ 500`).
+  - Added native support for GPay P2P notification formats (`Paid you ₹ 500`, `Sent you ₹ 500`, `₹ 500 from <Name>`, `<Name> sent ₹ 500`, and direct amount with sender title).
+  - Added package-aware detection for both Consumer GPay (`com.google.android.apps.nbu.paisa.user`) and Google Pay for Business (`com.google.android.apps.nbu.paisa.merchant`).
+  - Added support for Hindi GPay payment notifications (`रोहित शर्मा ने ₹ 500 भेजे`, `₹ 500 प्राप्त हुए / मिले`).
+  - Implemented strict payment request rejection so that collect requests (`Requested ₹ 500`, `Payment request`) are never erroneously announced as received payments.
+
+- **🔄 Fixed HomeScreen Update Banner Logic:**
+  - Fixed markdown regex in `AppUpdateManager` (`(?i)(?:versionCode|code|build)[*_\s]*[:=][*_\s`]*(\d+)`) which previously failed on bold/backticked markdown attributes.
+  - Eliminated flawed semver fallback arithmetic (`10002`) that caused current versions to be falsely flagged as outdated.
+  - Rewrote version comparison so identical versions (`v1.0.2` on app vs `v1.0.2` on GitHub) cleanly return `false` (no update available).
+  - Added an interactive dismiss (`Close`) button to the HomeScreen update banner card.
+
+- **🧪 Expanded Unit Test Suite:**
+  - Added comprehensive automated test coverage for Google Pay P2P formats, merchant alerts, Hindi notifications, payment requests, non-breaking spaces, and version comparison edge cases.
 
 ---
 
@@ -62,31 +69,36 @@
 
 | File | Type | Target Architecture | Size | Checksum (SHA-256) |
 | :--- | :--- | :--- | :--- | :--- |
-| [`dasmo-soundbox-v1.0.2.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.2/dasmo-soundbox-v1.0.2.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 14.5 MB | `96841291ec0b4acacc97ed4eac1a7fc5c6e6a40753005ce20e65ac5801097f21` |
+| [`dasmo-soundbox-v1.0.3.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.3/dasmo-soundbox-v1.0.3.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 14.5 MB | `3447bab59eba5239d353c39b2dce4fbce67079a7916e69a3b2bc2c16ce42be55` |
 
 ---
 
 ### 🛠️ Detailed Changelog
 
-#### 🧭 Navigation & UI Architecture
-- Fixed `AppNavGraph.kt` tab backstack popping when navigating to `Routes.HOME`.
-- Replaced deprecated icon references with `Icons.AutoMirrored.Filled.*` across `HomeScreen`, `AnalyticsScreen`, `KioskScreen`, `LedgerScreen`, and `SettingsScreen`.
-- Updated `SettingsScreen` dropdown fields to `Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)`.
-- Replaced deprecated `Locale(String)` constructors in `TtsEngine` with modern `Locale.forLanguageTag()`.
-- Updated `AppModule.kt` Room builder with `fallbackToDestructiveMigration(true)`.
+#### 💳 Google Pay & UPI Notification Parser
+- Added non-breaking space normalization (`\u00A0`, `\u202F`, `\u200B`, `\uFEFF`) across text, title, and reference extractors in `PaymentParser.kt`.
+- Updated all currency regex patterns to support optional whitespace after the rupee symbol (`(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)`).
+- Added package name parameter to `PaymentParser.parse(text, fallbackTitle, packageName)` and integrated from `PaymentNotificationListener.kt`.
+- Added name-first and Hindi payment patterns, along with Indic Unicode-safe matra/vowel mark preservation in `sanitizeAndFormatName`.
+- Added request keywords (`requested`, `payment request`, `collect request`) to discard outgoing/pending payment requests.
 
-#### 🧪 Testing & Verification
-- Added `testRoutesIntegrity()` unit test to verify distinctness and persistence of all application routes.
+#### 🔄 In-App Updater & HomeScreen Banner
+- Fixed markdown parsing for `versionCode` in `AppUpdateManager.kt`.
+- Fixed `isNewerVersion` logic to prevent false-positive updates when app version matches latest release.
+- Added banner dismissal button and automatic clearance upon verifying up-to-date status in `HomeScreen.kt`.
+
+#### 🧪 Testing
+- Added unit tests for GPay P2P, Business, Hindi, and update comparisons in `ExampleUnitTest.kt`. All 24 unit tests passing.
 ```
 
 ---
 
-## 🚀 Current Production Release: v1.0.2
+## 🚀 Current Production Release: v1.0.3
 
 ### Version Summary
-- **Tag:** `v1.0.2`
-- **Version Code:** `3`
-- **Version Name:** `1.0.2`
+- **Tag:** `v1.0.3`
+- **Version Code:** `4`
+- **Version Name:** `1.0.3`
 - **Status:** General Availability (GA)
 - **Repository:** `SUBHOJITPAUL797/DASMO-SOUND-BOX`
 

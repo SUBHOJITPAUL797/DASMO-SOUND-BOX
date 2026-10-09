@@ -121,6 +121,8 @@ fun HomeScreen(
                 val result = manager.checkForUpdate(context)
                 if (result is UpdateStatus.UpdateAvailable) {
                     availableUpdate = result.updateInfo
+                } else {
+                    availableUpdate = null
                 }
             } catch (_: Exception) {
                 // Silently ignore network failures on home launch
@@ -264,8 +266,7 @@ fun HomeScreen(
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigateToSettings() },
+                            .fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Row(
@@ -274,7 +275,11 @@ fun HomeScreen(
                         ) {
                             Text("🚀", style = MaterialTheme.typography.titleLarge)
                             Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { onNavigateToSettings() }
+                            ) {
                                 Text(
                                     "Update Available: v${availableUpdate?.latestVersion}",
                                     fontWeight = FontWeight.Bold,
@@ -289,6 +294,13 @@ fun HomeScreen(
                             }
                             FilledTonalButton(onClick = onNavigateToSettings) {
                                 Text("Update")
+                            }
+                            IconButton(onClick = { availableUpdate = null }) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
                             }
                         }
                     }

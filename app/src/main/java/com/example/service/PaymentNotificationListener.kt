@@ -78,7 +78,11 @@ class PaymentNotificationListener : NotificationListenerService() {
                 
                 if (!KnownPaymentApps.shouldProcessNotification(packageName, fullText)) return@launch
                 
-                val result = PaymentParser.parse(fullText, fallbackTitle = if (title.isNotBlank()) title else bigTitle)
+                val result = PaymentParser.parse(
+                    text = fullText,
+                    fallbackTitle = if (title.isNotBlank()) title else bigTitle,
+                    packageName = packageName
+                )
                 if (result.amount != null && result.isCredit) {
                     val appName = KnownPaymentApps.packageNames[packageName] ?: run {
                         try {

@@ -292,21 +292,14 @@ class AppUpdateManager {
         return tag.trim().removePrefix("v").removePrefix("V")
     }
 
-    internal fun extractVersionCode(body: String, fallbackVer: String): Int {
-        // Look for pattern "versionCode: 12" or "code: 12" or "Code: 12"
-        val pattern = Pattern.compile("(?i)(?:versionCode|code|build)\\s*[:=]\\s*(\\d+)")
+    internal fun extractVersionCode(body: String, fallbackVer: String = ""): Int {
+        // Look for pattern "versionCode: 12", "**versionCode:** `12`", "**versionCode**: 12", "Code: 12", etc.
+        val pattern = Pattern.compile("(?i)(?:versionCode|code|build)[*_\\s]*[:=][*_\\s`]*(\\d+)")
         val matcher = pattern.matcher(body)
         if (matcher.find()) {
-            return matcher.group(1)?.toIntOrNull() ?: 1
+            return matcher.group(1)?.toIntOrNull() ?: -1
         }
-        // Fallback: derive simple version code from semver (e.g. 1.0.1 -> 10001)
-        val parts = fallbackVer.split(".").mapNotNull { it.toIntOrNull() }
-        return when (parts.size) {
-            1 -> parts[0]
-            2 -> parts[0] * 1000 + parts[1]
-            3 -> parts[0] * 10000 + parts[1] * 100 + parts[2]
-            else -> 1
-        }
+        return -1
     }
 
     internal fun isNewerVersion(
@@ -315,11 +308,7 @@ class AppUpdateManager {
         latestVer: String,
         latestCode: Int
     ): Boolean {
-        // 1. Primary check: Version Code
-        if (latestCode > currentCode) return true
-        if (latestCode < currentCode && latestCode > 1) return false
-
-        // 2. Semantic version comparison
+        // 1. Semantic version comparison
         val currentClean = cleanVersionTag(currentVer)
         val latestClean = cleanVersionTag(latestVer)
 
@@ -332,6 +321,11 @@ class AppUpdateManager {
             val l = if (i < latestParts.size) latestParts[i] else 0
             if (l > c) return true
             if (l < c) return false
+        }
+
+        // 2. If semantic versions are identical, only consider newer if latestCode is explicitly defined (> 0) and greater than currentCode
+        if (latestCode > 0 && currentCode > 0) {
+            return latestCode > currentCode
         }
 
         return false
