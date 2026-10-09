@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 
 class PaymentEventBus {
     private val _events = MutableSharedFlow<PaymentEvent>(
+        replay = 10,
         extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )

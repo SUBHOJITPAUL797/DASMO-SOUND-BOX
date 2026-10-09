@@ -63,24 +63,102 @@ class PaymentNotificationListener : NotificationListenerService() {
                 
                 if (settings.disabledAppPackages.contains(packageName)) return@launch
                 
-                val extras = sbn.notification?.extras ?: return@launch
-                val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-                val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-                val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
-                val bigTitle = extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString() ?: ""
-                val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString() ?: ""
-                val summaryText = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString() ?: ""
-                val infoText = extras.getCharSequence(Notification.EXTRA_INFO_TEXT)?.toString() ?: ""
-                val tickerText = sbn.notification.tickerText?.toString() ?: ""
-                val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.joinToString(" ") { it.toString() } ?: ""
-                
-                val fullText = "$title $bigTitle $subText $summaryText $infoText $bigText $text $tickerText $textLines".trim()
+                val notification = sbn.notification ?: return@launch
+                val extras = notification.extras ?: return@launch
+
+                val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
+                val bigTitle = extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()?.trim() ?: ""
+                val conversationTitle = extras.getCharSequence("android.conversationTitle")?.toString()?.trim() ?: ""
+                val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
+                val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim() ?: ""
+                val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim() ?: ""
+                val summaryText = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString()?.trim() ?: ""
+                val infoText = extras.getCharSequence(Notification.EXTRA_INFO_TEXT)?.toString()?.trim() ?: ""
+                val tickerText = notification.tickerText?.toString()?.trim() ?: ""
+                val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+                    ?.joinToString(" ") { it.toString().trim() } ?: ""
+
+                // Extract MessagingStyle messages (Crucial for Google Pay and chat-style UPI notifications)
+                val messagingTexts = mutableListOf<String>()
+                var messagingSender: String? = null
+
+                fun processMessageBundle(bundle: android.os.Bundle) {
+                    val msgText = bundle.getCharSequence("text")?.toString()?.trim()
+                    if (!msgText.isNullOrBlank()) {
+                        messagingTexts.add(msgText)
+                    }
+                    val sender = bundle.getCharSequence("sender")?.toString()?.trim()
+                    if (!sender.isNullOrBlank() && messagingSender == null) {
+                        messagingSender = sender
+                    }
+                }
+
+                val messagesRaw = extras.get("android.messages")
+                if (messagesRaw is Array<*>) {
+                    for (item in messagesRaw) {
+                        if (item is android.os.Bundle) {
+                            processMessageBundle(item)
+                        }
+                    }
+                } else if (messagesRaw is List<*>) {
+                    for (item in messagesRaw) {
+                        if (item is android.os.Bundle) {
+                            processMessageBundle(item)
+                        }
+                    }
+                }
+
+                val historicMessagesRaw = extras.get("android.messages.historic")
+                if (historicMessagesRaw is Array<*>) {
+                    for (item in historicMessagesRaw) {
+                        if (item is android.os.Bundle) {
+                            processMessageBundle(item)
+                        }
+                    }
+                } else if (historicMessagesRaw is List<*>) {
+                    for (item in historicMessagesRaw) {
+                        if (item is android.os.Bundle) {
+                            processMessageBundle(item)
+                        }
+                    }
+                }
+
+                // Gather any additional CharSequences in bundle keys
+                val extraTokens = mutableListOf<String>()
+                for (key in extras.keySet()) {
+                    if (key.startsWith("android.messages")) continue
+                    when (val obj = extras.get(key)) {
+                        is CharSequence -> {
+                            val str = obj.toString().trim()
+                            if (str.isNotBlank() && str.length < 300) {
+                                extraTokens.add(str)
+                            }
+                        }
+                    }
+                }
+
+                val allParts = listOf(
+                    title, bigTitle, conversationTitle, messagingSender ?: "",
+                    messagingTexts.joinToString(" "),
+                    text, bigText, subText, summaryText, infoText, tickerText, textLines,
+                    extraTokens.joinToString(" ")
+                ).filter { it.isNotBlank() }
+
+                val fullText = allParts.distinct().joinToString(" ").trim()
                 
                 if (!KnownPaymentApps.shouldProcessNotification(packageName, fullText)) return@launch
+
+                val fallbackTitle = when {
+                    !messagingSender.isNullOrBlank() -> messagingSender
+                    conversationTitle.isNotBlank() -> conversationTitle
+                    title.isNotBlank() -> title
+                    bigTitle.isNotBlank() -> bigTitle
+                    else -> null
+                }
                 
                 val result = PaymentParser.parse(
                     text = fullText,
-                    fallbackTitle = if (title.isNotBlank()) title else bigTitle,
+                    fallbackTitle = fallbackTitle,
                     packageName = packageName
                 )
                 if (result.amount != null && result.isCredit) {
@@ -103,15 +181,6 @@ class PaymentNotificationListener : NotificationListenerService() {
                         }
                     }
 
-                    // Auto-start foreground service if enabled but not running
-                    if (!SoundBoxForegroundService.isRunning && settings.isEnabled) {
-                        try {
-                            SoundBoxForegroundService.start(applicationContext)
-                        } catch (e: Throwable) {
-                            Log.w(TAG, "Could not start service: ${e.message}")
-                        }
-                    }
-
                     val event = PaymentEvent(
                         amount = result.amount,
                         sourceType = SourceType.NOTIFICATION,
@@ -121,6 +190,16 @@ class PaymentNotificationListener : NotificationListenerService() {
                         refId = result.refId,
                         rawText = fullText
                     )
+
+                    // Auto-start foreground service if enabled but not running, passing the event in intent
+                    if (!SoundBoxForegroundService.isRunning && settings.isEnabled) {
+                        try {
+                            SoundBoxForegroundService.start(applicationContext, event)
+                        } catch (e: Throwable) {
+                            Log.w(TAG, "Could not start service: ${e.message}")
+                        }
+                    }
+
                     AppModule.paymentEventBus?.emit(event)
                 }
             } catch (e: Throwable) {

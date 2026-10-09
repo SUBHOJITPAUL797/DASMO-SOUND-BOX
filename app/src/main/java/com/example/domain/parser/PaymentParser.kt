@@ -6,11 +6,10 @@ import java.util.Locale
 object PaymentParser {
 
     private val DEBIT_KEYWORDS = listOf(
-        "debited", "deducted", "payment done", "payment successful", "payment made",
-        "money sent", "amount debited", "sent to", "paid from your", "paid from a/c",
-        "transferred from your", "failed", "declined", "reversed", "refund initiated",
-        "purchase of", "bill payment", "sent rs", "paid rs", "dr in", "dr.",
-        "paid to", "sent to", "transferred to", "paid at"
+        "debited", "deducted", "amount debited", "debited from", "paid from your", "paid from a/c",
+        "transferred from your", "sent from your", "you paid", "you sent", "you have paid", "you have sent",
+        "failed", "declined", "reversed", "refund initiated", "purchase of", "bill payment",
+        "dr in", "dr.", "paid at"
     )
 
     private val REQUEST_KEYWORDS = listOf(
@@ -20,9 +19,10 @@ object PaymentParser {
 
     private val CREDIT_KEYWORDS = listOf(
         "received", "credited", "credit", "added", "deposited",
-        "paid to you", "paid to your", "transferred to you", "transferred to your", "money received",
-        "amount received", "payment received", "cr", "cr.", "cr in", "gained",
+        "sent to your", "sent to you", "paid to you", "paid to your", "transferred to you", "transferred to your",
+        "money received", "amount received", "payment received", "cr", "cr.", "cr in", "gained",
         "sent you", "paid you", "loaded with", "money in!", "payment from", "received from",
+        "received in your", "credited to", "credited in", "deposited in", "deposited to",
         "प्राप्त", "मिले", "भेजे", "जमा"
     )
 
@@ -112,8 +112,10 @@ object PaymentParser {
             Regex("""(?:received|got|credit|you've\s+received|you\s+have\s+received)\s+(?:a\s+)?(?:payment\s+of\s+)?(?:of\s+)?(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
             // "payment received: ₹500" or "payment received of ₹500"
             Regex("""payment\s+received\s*(?::|of|for)?\s*(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
-            // "Rs 500 received / deposited / added to your a/c"
-            Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:received|paid\s+to\s+your|deposited|added\s+to|transferred\s+to)""", RegexOption.IGNORE_CASE),
+            // "Rs 500 received / deposited / added / sent to your a/c"
+            Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:has\s+been\s+)?(?:received|sent\s+to\s+your|paid\s+to\s+your|deposited|added\s+to|transferred\s+to)""", RegexOption.IGNORE_CASE),
+            // "sent/transferred/paid ₹ 500 to your account"
+            Regex("""(?:sent|transferred|paid)\s+(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:to\s+your|to\s+you)""", RegexOption.IGNORE_CASE),
             // "₹ 500 received from Rohit Sharma" or "₹ 500 from Rohit Sharma"
             Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:received\s+)?(?:from)\s+([A-Za-z0-9\s.]{2,40})""", RegexOption.IGNORE_CASE),
             // "a/c ending *1234 credited with Rs 500"
@@ -162,10 +164,11 @@ object PaymentParser {
         )) || normalized.contains("google pay") || normalized.contains("gpay")
 
         if (isGPay && !hasDebitKeyword) {
-            val gpayAmountPattern = Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
+            val gpayAmountPattern = Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)|([\d,]+(?:\.\d{1,2})?)\s*(?:₹|Rs\.?|INR|rupees?)""", RegexOption.IGNORE_CASE)
             val match = gpayAmountPattern.find(cleanText)
             if (match != null) {
-                val raw = match.groupValues[1].replace(",", "")
+                val rawGroup = if (match.groupValues[1].isNotBlank()) match.groupValues[1] else match.groupValues[2]
+                val raw = rawGroup.replace(",", "")
                 val amount = raw.toDoubleOrNull()
                 if (amount != null && amount > 0) {
                     val payerName = extractPayerName(cleanText, cleanFallbackTitle)

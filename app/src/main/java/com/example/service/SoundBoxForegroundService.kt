@@ -34,14 +34,29 @@ class SoundBoxForegroundService : LifecycleService() {
         private const val TAG = "SoundBoxService"
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "soundbox_service"
+        const val EXTRA_AMOUNT = "extra_amount"
+        const val EXTRA_SOURCE_APP = "extra_source_app"
+        const val EXTRA_SOURCE_APP_NAME = "extra_source_app_name"
+        const val EXTRA_PAYER_NAME = "extra_payer_name"
+        const val EXTRA_REF_ID = "extra_ref_id"
+        const val EXTRA_RAW_TEXT = "extra_raw_text"
 
         @Volatile
         var isRunning: Boolean = false
             private set
         
-        fun start(context: Context) {
+        fun start(context: Context, initialEvent: PaymentEvent? = null) {
             try {
-                val intent = Intent(context, SoundBoxForegroundService::class.java)
+                val intent = Intent(context, SoundBoxForegroundService::class.java).apply {
+                    if (initialEvent != null) {
+                        putExtra(EXTRA_AMOUNT, initialEvent.amount)
+                        putExtra(EXTRA_SOURCE_APP, initialEvent.sourceApp)
+                        putExtra(EXTRA_SOURCE_APP_NAME, initialEvent.sourceAppName)
+                        putExtra(EXTRA_PAYER_NAME, initialEvent.payerName)
+                        putExtra(EXTRA_REF_ID, initialEvent.refId)
+                        putExtra(EXTRA_RAW_TEXT, initialEvent.rawText)
+                    }
+                }
                 ContextCompat.startForegroundService(context, intent)
             } catch (e: Throwable) {
                 Log.e(TAG, "Failed to start foreground service: ${e.message}")
@@ -86,6 +101,23 @@ class SoundBoxForegroundService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         isRunning = true
         startForegroundSafely()
+
+        if (intent != null && intent.hasExtra(EXTRA_AMOUNT)) {
+            val amount = intent.getDoubleExtra(EXTRA_AMOUNT, 0.0)
+            if (amount > 0.0) {
+                val event = PaymentEvent(
+                    amount = amount,
+                    sourceType = com.example.domain.model.SourceType.NOTIFICATION,
+                    sourceApp = intent.getStringExtra(EXTRA_SOURCE_APP) ?: "",
+                    sourceAppName = intent.getStringExtra(EXTRA_SOURCE_APP_NAME) ?: "",
+                    payerName = intent.getStringExtra(EXTRA_PAYER_NAME),
+                    refId = intent.getStringExtra(EXTRA_REF_ID),
+                    rawText = intent.getStringExtra(EXTRA_RAW_TEXT) ?: ""
+                )
+                paymentChannel.trySend(event)
+            }
+        }
+
         return START_STICKY
     }
 

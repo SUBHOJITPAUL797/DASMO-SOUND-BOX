@@ -120,7 +120,13 @@ fun HomeScreen(
                 val manager = AppModule.updateManager ?: AppUpdateManager.getInstance()
                 val result = manager.checkForUpdate(context)
                 if (result is UpdateStatus.UpdateAvailable) {
-                    availableUpdate = result.updateInfo
+                    val dismissedVer = context.getSharedPreferences("app_update_prefs", Context.MODE_PRIVATE)
+                        .getString("dismissed_version", "") ?: ""
+                    if (result.updateInfo.latestVersion != dismissedVer) {
+                        availableUpdate = result.updateInfo
+                    } else {
+                        availableUpdate = null
+                    }
                 } else {
                     availableUpdate = null
                 }
@@ -295,7 +301,16 @@ fun HomeScreen(
                             FilledTonalButton(onClick = onNavigateToSettings) {
                                 Text("Update")
                             }
-                            IconButton(onClick = { availableUpdate = null }) {
+                            IconButton(onClick = {
+                                val verToDismiss = availableUpdate?.latestVersion ?: ""
+                                if (verToDismiss.isNotBlank()) {
+                                    context.getSharedPreferences("app_update_prefs", Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putString("dismissed_version", verToDismiss)
+                                        .apply()
+                                }
+                                availableUpdate = null
+                            }) {
                                 Icon(
                                     Icons.Default.Close,
                                     contentDescription = "Dismiss",

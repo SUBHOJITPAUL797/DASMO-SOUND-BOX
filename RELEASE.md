@@ -32,11 +32,11 @@
 > The In-App Updater parses the `versionCode`, tag, and changelog headers automatically.
 
 ```markdown
-# 🔊 DASMO Sound Box v1.0.3 — Google Pay Payment Engine & In-App Update Banner Fix
+# 🔊 DASMO Sound Box v1.0.4 — Google Pay Engine & Update Banner Fix
 
 ### 🏷️ Metadata
-- **Version:** `v1.0.3`
-- **versionCode:** `4`
+- **Version:** `v1.0.4`
+- **versionCode:** `5`
 - **Package:** `com.aistudio.soundbox.dsmo`
 - **Channel:** Production (Stable)
 - **Minimum OS:** Android 7.0 (API Level 24)
@@ -45,23 +45,19 @@
 
 ---
 
-### 🚀 Highlights & What's New
+### 🚀 Highlights & What's Fixed
 
-- **💳 High-Precision Google Pay (GPay) Detection Engine:**
-  - Resolved an issue where incoming Google Pay payments were ignored due to Unicode non-breaking spaces (`\u00A0`, `\u202F`, `\u200B`) and currency formatting spaces (`₹ 500`).
-  - Added native support for GPay P2P notification formats (`Paid you ₹ 500`, `Sent you ₹ 500`, `₹ 500 from <Name>`, `<Name> sent ₹ 500`, and direct amount with sender title).
-  - Added package-aware detection for both Consumer GPay (`com.google.android.apps.nbu.paisa.user`) and Google Pay for Business (`com.google.android.apps.nbu.paisa.merchant`).
-  - Added support for Hindi GPay payment notifications (`रोहित शर्मा ने ₹ 500 भेजे`, `₹ 500 प्राप्त हुए / मिले`).
-  - Implemented strict payment request rejection so that collect requests (`Requested ₹ 500`, `Payment request`) are never erroneously announced as received payments.
+- **💳 100% Reliable Google Pay (GPay) Detection:**
+  - **MessagingStyle Notification Extraction:** Fixed bug where Google Pay P2P transfers embed payment amounts inside `android.messages` / `android.messages.historic` bundle arrays rather than standard notification title/text fields. The app now parses all nested bundles and extracts the sender and amount reliably.
+  - **Debit False Positive Elimination:** Removed `"sent to"`, `"transferred to"`, `"paid to"`, and `"payment successful"` from debit keywords. These previously caused incoming payments like `"₹ 500 sent to your State Bank of India account"` or `"₹ 500 transferred to your account"` to be discarded as debit transactions.
+  - **System Notification Filter Removal:** Removed `android.service.notification.default_filter_types` from the manifest so Android OS delivers all notification types without OEM filtering.
+  - **Guaranteed Event Delivery:** Updated `PaymentEventBus` with `replay = 10` and added direct intent parameter passing to `SoundBoxForegroundService` so events emitted during service start are never dropped.
 
-- **🔄 Fixed HomeScreen Update Banner Logic:**
-  - Fixed markdown regex in `AppUpdateManager` (`(?i)(?:versionCode|code|build)[*_\s]*[:=][*_\s`]*(\d+)`) which previously failed on bold/backticked markdown attributes.
-  - Eliminated flawed semver fallback arithmetic (`10002`) that caused current versions to be falsely flagged as outdated.
-  - Rewrote version comparison so identical versions (`v1.0.2` on app vs `v1.0.2` on GitHub) cleanly return `false` (no update available).
-  - Added an interactive dismiss (`Close`) button to the HomeScreen update banner card.
-
-- **🧪 Expanded Unit Test Suite:**
-  - Added comprehensive automated test coverage for Google Pay P2P formats, merchant alerts, Hindi notifications, payment requests, non-breaking spaces, and version comparison edge cases.
+- **🔄 Fixed HomeScreen Update Notification Banner:**
+  - **Persistent Banner Dismissal:** Dismissing the update banner on the HomeScreen now persists across tab navigation and app restarts in `SharedPreferences`.
+  - **Dual APK Signing (v1 + v2):** Release APK is signed with both JAR v1 and APK Signature Scheme v2/v3, resolving package installer parsing errors on various OEM devices.
+  - **Package Installer Permission Fix:** In-app installer grants explicit URI permissions to all matching installer resolver activities and adds `EXTRA_NOT_UNKNOWN_SOURCE`.
+  - **Runtime Package Versioning:** Checks live installed `PackageInfo` on device rather than compile-time constants.
 
 ---
 
@@ -69,9 +65,8 @@
 
 | File | Type | Target Architecture | Size | Checksum (SHA-256) |
 | :--- | :--- | :--- | :--- | :--- |
-| [`dasmo-soundbox-v1.0.3.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.3/dasmo-soundbox-v1.0.3.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 14.5 MB | `3447bab59eba5239d353c39b2dce4fbce67079a7916e69a3b2bc2c16ce42be55` |
-
----
+| [`dasmo-soundbox-v1.0.4.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.4/dasmo-soundbox-v1.0.4.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 14.5 MB | `489bcd6021caa3b4ba66c207fc559f5019293113771650a96226dd12db5a4ed8` |
+```
 
 ### 🛠️ Detailed Changelog
 

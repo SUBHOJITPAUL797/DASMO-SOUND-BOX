@@ -253,5 +253,65 @@ class ExampleUnitTest {
         assertTrue(routes.none { it.isBlank() })
         assertEquals("home", home)
     }
+
+    @Test
+    fun testGooglePaySentToYourAccountPattern() {
+        val text = "Rohit Sharma ₹ 500 sent to your State Bank of India account"
+        val result = PaymentParser.parse(
+            text = text,
+            fallbackTitle = "Rohit Sharma",
+            packageName = "com.google.android.apps.nbu.paisa.user"
+        )
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+    }
+
+    @Test
+    fun testGooglePayTransferredToYourAccountPattern() {
+        val text = "₹ 1,500 transferred to your account"
+        val result = PaymentParser.parse(
+            text = text,
+            fallbackTitle = "Vikram Singh",
+            packageName = "com.google.android.apps.nbu.paisa.user"
+        )
+        assertTrue(result.isCredit)
+        assertEquals(1500.0, result.amount!!, 0.01)
+        assertEquals("Vikram Singh", result.payerName)
+    }
+
+    @Test
+    fun testGooglePayPaidToYourAccountPattern() {
+        val text = "₹ 200 paid to your UPI ID"
+        val result = PaymentParser.parse(
+            text = text,
+            fallbackTitle = "Anita Sharma",
+            packageName = "com.google.android.apps.nbu.paisa.user"
+        )
+        assertTrue(result.isCredit)
+        assertEquals(200.0, result.amount!!, 0.01)
+        assertEquals("Anita Sharma", result.payerName)
+    }
+
+    @Test
+    fun testDebitActualOutgoingPayments() {
+        // You paid ₹ 500 to Rohit Sharma
+        val text1 = "You paid ₹ 500 to Rohit Sharma"
+        val result1 = PaymentParser.parse(text1, packageName = "com.google.android.apps.nbu.paisa.user")
+        assertFalse(result1.isCredit)
+        assertNull(result1.amount)
+
+        // ₹ 500 debited from your A/c
+        val text2 = "₹ 500 debited from your A/c ending 1234"
+        val result2 = PaymentParser.parse(text2)
+        assertFalse(result2.isCredit)
+        assertNull(result2.amount)
+
+        // Paid from your account
+        val text3 = "₹ 1,000 paid from your bank account"
+        val result3 = PaymentParser.parse(text3)
+        assertFalse(result3.isCredit)
+        assertNull(result3.amount)
+    }
 }
 

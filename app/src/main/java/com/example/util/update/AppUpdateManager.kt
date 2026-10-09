@@ -109,8 +109,23 @@ class AppUpdateManager {
                     }
                 }
 
-                val currentVersionName = BuildConfig.VERSION_NAME
-                val currentVersionCode = BuildConfig.VERSION_CODE
+                val (currentVersionName, currentVersionCode) = try {
+                    val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        context.packageManager.getPackageInfo(context.packageName, 0)
+                    }
+                    val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        pInfo.longVersionCode.toInt()
+                    } else {
+                        @Suppress("DEPRECATION")
+                        pInfo.versionCode
+                    }
+                    (pInfo.versionName ?: BuildConfig.VERSION_NAME) to code
+                } catch (_: Exception) {
+                    BuildConfig.VERSION_NAME to BuildConfig.VERSION_CODE
+                }
 
                 val cleanLatestVersion = cleanVersionTag(tagName)
                 val latestVersionCode = extractVersionCode(releaseBody, cleanLatestVersion)
@@ -266,6 +281,19 @@ class AppUpdateManager {
             setDataAndType(contentUri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+        }
+
+        try {
+            val resInfoList = context.packageManager.queryIntentActivities(installIntent, 0)
+            for (resolveInfo in resInfoList) {
+                val pkg = resolveInfo.activityInfo?.packageName
+                if (!pkg.isNullOrBlank()) {
+                    context.grantUriPermission(pkg, contentUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+        } catch (_: Exception) {
+            // Best effort URI permission grant
         }
 
         context.startActivity(installIntent)
