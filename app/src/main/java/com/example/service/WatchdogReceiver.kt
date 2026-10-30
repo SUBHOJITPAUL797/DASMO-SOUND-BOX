@@ -10,6 +10,7 @@ class WatchdogReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == "com.soundboxpro.WATCHDOG_CHECK") {
             try {
+                PaymentNotificationListener.rebindIfDisconnected(context)
                 if (!SoundBoxForegroundService.isRunning) {
                     AppModule.getOrInit(context)
                     SoundBoxForegroundService.start(context)

@@ -7,6 +7,7 @@ object KnownPaymentApps {
         "com.google.android.apps.nbu.paisa.user" to "Google Pay",
         "net.one97.paytm" to "Paytm",
         "in.org.npci.upiapp" to "BHIM UPI",
+        "in.org.npci.bhim.aadhaarpay" to "BHIM Aadhaar Pay",
         "in.amazon.mShop.android.shopping" to "Amazon Pay",
         "com.mobikwik_new" to "MobiKwik",
         "com.whatsapp" to "WhatsApp Pay",
@@ -24,6 +25,26 @@ object KnownPaymentApps {
         "com.navi.navi.app" to "Navi",
         "com.bajaj.pay" to "Bajaj Pay",
         "com.tatadigital.tcp" to "Tata Neu",
+
+        // Bank-Specific BHIM UPI Apps
+        "com.sbi.upi" to "BHIM SBI Pay",
+        "com.bankofbaroda.upi" to "BHIM Baroda Pay",
+        "com.pnb.upi" to "BHIM PNB",
+        "com.boi.upi" to "BHIM BOI UPI",
+        "com.unionbank.upi" to "BHIM Union Bank UPI",
+        "com.canarabank.upi" to "BHIM Canara UPI",
+        "com.centralbank.upi" to "BHIM Cent UPI",
+        "com.indianbank.upi" to "BHIM Indian Bank UPI",
+        "com.iob.upi" to "BHIM IOB UPI",
+        "com.uco.upi" to "BHIM UCO UPI",
+        "com.psb.upi" to "BHIM PSB UPI",
+        "com.idbi.upi" to "BHIM IDBI UPI",
+        "com.upi.axispay" to "BHIM Axis Pay",
+        "com.rblbank.upi" to "BHIM RBL Pay",
+        "com.syndicate.upi" to "BHIM Syndicate UPI",
+        "com.corporationbank.upi" to "BHIM Corp UPI",
+        "com.andhrabank.upi" to "BHIM Andhra Bank UPI",
+        "com.allbank.upi" to "BHIM Allahabad Bank UPI",
 
         // Merchant & Business UPI Apps
         "com.phonepe.merchant.app" to "PhonePe Business",
@@ -71,7 +92,6 @@ object KnownPaymentApps {
         // Public Sector Banks
         "com.sbi.SBIFreedomPlus" to "YONO SBI",
         "com.moneytransfer.yono" to "SBI YONO Lite",
-        "com.sbi.upi" to "BHIM SBI Pay",
         "com.canarabank.ai1" to "Canara Bank",
         "com.bankofbaroda.mconnect" to "BOB World",
         "com.pnb.pnbone" to "PNB ONE",
@@ -96,7 +116,7 @@ object KnownPaymentApps {
     )
 
     private val BANK_PACKAGE_KEYWORDS = listOf(
-        "kotak", "bank", "pay", "upi", "npci", "financial", "mamp", "mobilebanking", "paisa",
+        "bhim", "kotak", "bank", "pay", "upi", "npci", "financial", "mamp", "mobilebanking", "paisa",
         "sbi", "hdfc", "icici", "axis", "pnb", "bob", "canara", "union", "boi", "indianbank",
         "iob", "uco", "psb", "idfc", "indus", "yesbank", "rbl", "federal", "sib", "kvb",
         "bandhan", "aubank", "equitas", "ujjivan", "jana", "suryoday", "ippb", "airtel",
@@ -105,7 +125,8 @@ object KnownPaymentApps {
 
     private val PAYMENT_TEXT_KEYWORDS = listOf(
         "received", "credited", "credit", "added", "deposited", "paid",
-        "₹", "rs.", "inr", "rupees", "upi", "a/c", "cr", "successful", "transferred"
+        "₹", "rs.", "inr", "rupees", "upi", "a/c", "cr", "successful", "transferred",
+        "bhim", "प्राप्त", "मिले", "जमा", "भेजे"
     )
 
     fun shouldProcessNotification(packageName: String, text: String): Boolean {

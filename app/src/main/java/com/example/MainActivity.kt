@@ -57,4 +57,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        com.example.service.PaymentNotificationListener.rebindIfDisconnected(this)
+    }
 }

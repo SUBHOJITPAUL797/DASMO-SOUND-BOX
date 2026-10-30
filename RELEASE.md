@@ -32,11 +32,11 @@
 > The In-App Updater parses the `versionCode`, tag, and changelog headers automatically.
 
 ```markdown
-# 🔊 DASMO Sound Box v1.0.4 — Google Pay Engine & Update Banner Fix
+# 🔊 DASMO Sound Box v1.0.5 — Industry-Grade BHIM UPI Engine & Rebind Resilience
 
 ### 🏷️ Metadata
-- **Version:** `v1.0.4`
-- **versionCode:** `5`
+- **Version:** `v1.0.5`
+- **versionCode:** `6`
 - **Package:** `com.aistudio.soundbox.dsmo`
 - **Channel:** Production (Stable)
 - **Minimum OS:** Android 7.0 (API Level 24)
@@ -47,17 +47,17 @@
 
 ### 🚀 Highlights & What's Fixed
 
-- **💳 100% Reliable Google Pay (GPay) Detection:**
-  - **MessagingStyle Notification Extraction:** Fixed bug where Google Pay P2P transfers embed payment amounts inside `android.messages` / `android.messages.historic` bundle arrays rather than standard notification title/text fields. The app now parses all nested bundles and extracts the sender and amount reliably.
-  - **Debit False Positive Elimination:** Removed `"sent to"`, `"transferred to"`, `"paid to"`, and `"payment successful"` from debit keywords. These previously caused incoming payments like `"₹ 500 sent to your State Bank of India account"` or `"₹ 500 transferred to your account"` to be discarded as debit transactions.
-  - **System Notification Filter Removal:** Removed `android.service.notification.default_filter_types` from the manifest so Android OS delivers all notification types without OEM filtering.
-  - **Guaranteed Event Delivery:** Updated `PaymentEventBus` with `replay = 10` and added direct intent parameter passing to `SoundBoxForegroundService` so events emitted during service start are never dropped.
+- **🇮🇳 100% Reliable BHIM UPI & NPCI Ecosystem Announcement Engine:**
+  - **High-Confidence Smart Amount Detection:** Extended full privileged smart credit detection to BHIM UPI (`in.org.npci.upiapp`), BHIM Aadhaar Pay, and all major bank BHIM apps. Any notification containing an amount without debit keywords is detected and announced immediately.
+  - **Expanded Bank BHIM UPI Ecosystem:** Added full package recognition for BHIM SBI Pay, BHIM Baroda Pay, BHIM PNB, BHIM BOI, BHIM Union Bank, BHIM Canara, BHIM Cent, BHIM Indian Bank, BHIM IOB, BHIM UCO, BHIM PSB, BHIM IDBI, BHIM Axis Pay, BHIM RBL Pay, BHIM Syndicate, BHIM Corp, BHIM Andhra, and BHIM Allahabad.
+  - **Punctuation-Tolerant Patterns:** Fixed parser failure when notification texts contain colons, hyphens, or exclamation marks (`Money Received: ₹ 500`, `Payment Received - ₹ 1,250`, `Received: ₹ 500`, `Received! ₹ 500`).
+  - **Inverted Phrase Ordering Support:** Added first-class recognition for `"Received from [Payer] ₹ [Amount]"` and `"Money received from [Payer] ₹ [Amount]"`.
+  - **Unicode & Multilingual Hindi Name Extraction:** Replaced ASCII-only name extractors with Unicode property matchers (`\p{L}\p{M}`) to extract Indian names in Hindi (Devanagari), Bengali, Tamil, Telugu, Marathi, and Gujarati scripts cleanly. Added Hindi `"से"` ("from") extraction so sender names in Hindi notifications (e.g. `"रोहित शर्मा से ₹ 500 प्राप्त हुए"`) are announced accurately.
+  - **Grammar Support for Hindi:** Added support for both singular (`प्राप्त हुआ`) and plural (`प्राप्त हुए`) receipt notifications as well as deposit notices (`जमा किए गए`).
 
-- **🔄 Fixed HomeScreen Update Notification Banner:**
-  - **Persistent Banner Dismissal:** Dismissing the update banner on the HomeScreen now persists across tab navigation and app restarts in `SharedPreferences`.
-  - **Dual APK Signing (v1 + v2):** Release APK is signed with both JAR v1 and APK Signature Scheme v2/v3, resolving package installer parsing errors on various OEM devices.
-  - **Package Installer Permission Fix:** In-app installer grants explicit URI permissions to all matching installer resolver activities and adds `EXTRA_NOT_UNKNOWN_SOURCE`.
-  - **Runtime Package Versioning:** Checks live installed `PackageInfo` on device rather than compile-time constants.
+- **🛡️ Industry-Grade OEM Rebind Resilience:**
+  - **Self-Healing Notification Listener:** Added `rebindIfDisconnected(context)` using component toggling (`setComponentEnabledSetting`) to automatically re-hook the notification listener on reboot, app update, app resume, and watchdog ticks if killed by aggressive OEM battery managers (MIUI, ColorOS, FunTouch, OneUI).
+  - **Watchdog & Boot Self-Recovery:** BootReceiver and 15-minute WatchdogReceiver now actively inspect and heal listener connectivity in the background.
 
 ---
 
@@ -65,7 +65,7 @@
 
 | File | Type | Target Architecture | Size | Checksum (SHA-256) |
 | :--- | :--- | :--- | :--- | :--- |
-| [`dasmo-soundbox-v1.0.4.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.4/dasmo-soundbox-v1.0.4.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 14.5 MB | `489bcd6021caa3b4ba66c207fc559f5019293113771650a96226dd12db5a4ed8` |
+| [`dasmo-soundbox-v1.0.5.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.5/dasmo-soundbox-v1.0.5.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 14.5 MB | `d2d7963356ab80ad1855a136b7fa26b2536ce1f1e880a41b65f0bb5571df44ef` |
 ```
 
 ### 🛠️ Detailed Changelog

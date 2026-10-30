@@ -14,6 +14,7 @@ class BootReceiver : BroadcastReceiver() {
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             action == "android.intent.action.QUICKBOOT_POWERON") {
             try {
+                PaymentNotificationListener.rebindIfDisconnected(context)
                 SoundBoxForegroundService.start(context)
                 scheduleWatchdog(context)
             } catch (e: Throwable) {

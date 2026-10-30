@@ -313,5 +313,141 @@ class ExampleUnitTest {
         assertFalse(result3.isCredit)
         assertNull(result3.amount)
     }
+
+    @Test
+    fun testBhimNotificationStandardWithVpa() {
+        val text = "Received ₹ 500 from Rohit Sharma (rohit@upi) via UPI"
+        val result = PaymentParser.parse(text, packageName = "in.org.npci.upiapp")
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+    }
+
+    @Test
+    fun testBhimMoneyReceivedWithColon() {
+        val text = "Money Received: ₹ 500 from Rohit Sharma"
+        val result = PaymentParser.parse(text, packageName = "in.org.npci.upiapp")
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+    }
+
+    @Test
+    fun testBhimPaymentReceivedWithDash() {
+        val text = "Payment Received - ₹ 1,250"
+        val result = PaymentParser.parse(text, fallbackTitle = "Sunita Rao", packageName = "in.org.npci.upiapp")
+        assertTrue(result.isCredit)
+        assertEquals(1250.0, result.amount!!, 0.01)
+        assertEquals("Sunita Rao", result.payerName)
+    }
+
+    @Test
+    fun testBhimSuccessfullyReceived() {
+        val text = "Successfully received ₹ 500 from Suresh Patel"
+        val result = PaymentParser.parse(text, packageName = "in.org.npci.upiapp")
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Suresh Patel", result.payerName)
+    }
+
+    @Test
+    fun testBhimReceivedFromPayerFirst() {
+        val text = "Received from Rohit Sharma ₹ 500"
+        val result = PaymentParser.parse(text, packageName = "in.org.npci.upiapp")
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+    }
+
+    @Test
+    fun testBhimPrefixWithAmountReceived() {
+        val text = "BHIM: ₹ 500 received"
+        val result = PaymentParser.parse(text, fallbackTitle = "Manoj Kumar", packageName = "in.org.npci.upiapp")
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Manoj Kumar", result.payerName)
+    }
+
+    @Test
+    fun testBhimAppAmountOnlyWithFallbackTitle() {
+        val result = PaymentParser.parse(
+            text = "₹ 750",
+            fallbackTitle = "Rohit Sharma",
+            packageName = "in.org.npci.upiapp"
+        )
+        assertTrue(result.isCredit)
+        assertEquals(750.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+    }
+
+    @Test
+    fun testBhimSbiPayAppDetection() {
+        val result = PaymentParser.parse(
+            text = "₹ 300 received",
+            fallbackTitle = "Anil Kumar",
+            packageName = "com.sbi.upi"
+        )
+        assertTrue(result.isCredit)
+        assertEquals(300.0, result.amount!!, 0.01)
+        assertEquals("Anil Kumar", result.payerName)
+    }
+
+    @Test
+    fun testBhimBankSmsWithRefId() {
+        val text = "Dear Customer, your A/C ending 1234 has been credited with Rs.500.00 on 30-10-26 by UPI/CR/123456789012/Rohit Sharma/BHIM."
+        val result = PaymentParser.parse(text)
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("Rohit Sharma", result.payerName)
+        assertEquals("123456789012", result.refId)
+    }
+
+    @Test
+    fun testBhimHindiSingularReceived() {
+        val text = "रोहित शर्मा से ₹ 500 प्राप्त हुआ"
+        val result = PaymentParser.parse(text, packageName = "in.org.npci.upiapp")
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("रोहित शर्मा", result.payerName)
+    }
+
+    @Test
+    fun testBhimHindiPluralReceived() {
+        val text = "रोहित शर्मा से ₹ 500 प्राप्त हुए"
+        val result = PaymentParser.parse(text, packageName = "in.org.npci.upiapp")
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("रोहित शर्मा", result.payerName)
+    }
+
+    @Test
+    fun testBhimHindiPaymentReceivedHeading() {
+        val text = "भुगतान प्राप्त हुआ: ₹ 500"
+        val result = PaymentParser.parse(text, fallbackTitle = "रोहित शर्मा", packageName = "in.org.npci.upiapp")
+        assertTrue(result.isCredit)
+        assertEquals(500.0, result.amount!!, 0.01)
+        assertEquals("रोहित शर्मा", result.payerName)
+    }
+
+    @Test
+    fun testBhimPaymentRequestRejection() {
+        val result = PaymentParser.parse(
+            text = "Rohit Sharma requested ₹ 500",
+            fallbackTitle = "Rohit Sharma",
+            packageName = "in.org.npci.upiapp"
+        )
+        assertFalse(result.isCredit)
+        assertNull(result.amount)
+    }
+
+    @Test
+    fun testBhimDebitRejection() {
+        val result = PaymentParser.parse(
+            text = "You paid ₹ 500 to Grocery Store via BHIM UPI",
+            packageName = "in.org.npci.upiapp"
+        )
+        assertFalse(result.isCredit)
+        assertNull(result.amount)
+    }
 }
 

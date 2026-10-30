@@ -62,6 +62,7 @@ class SmsReceiver : BroadcastReceiver() {
                 val result = PaymentParser.parse(fullText)
                 if (result.amount != null && result.isCredit) {
                     val bankName = when {
+                        sender.contains("BHIM") -> "BHIM UPI SMS"
                         sender.contains("SBI") -> "SBI Bank SMS"
                         sender.contains("HDFC") -> "HDFC Bank SMS"
                         sender.contains("ICICI") -> "ICICI Bank SMS"

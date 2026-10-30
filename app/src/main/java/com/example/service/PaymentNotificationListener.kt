@@ -25,6 +25,34 @@ class PaymentNotificationListener : NotificationListenerService() {
         @Volatile
         var isConnected: Boolean = false
             private set
+
+        fun rebindIfDisconnected(context: android.content.Context) {
+            if (isConnected) return
+            val componentName = ComponentName(context, PaymentNotificationListener::class.java)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    requestRebind(componentName)
+                    Log.d(TAG, "Requested rebind for PaymentNotificationListener")
+                }
+            } catch (e: Throwable) {
+                try {
+                    val pm = context.packageManager
+                    pm.setComponentEnabledSetting(
+                        componentName,
+                        android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        android.content.pm.PackageManager.DONT_KILL_APP
+                    )
+                    pm.setComponentEnabledSetting(
+                        componentName,
+                        android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                        android.content.pm.PackageManager.DONT_KILL_APP
+                    )
+                    Log.d(TAG, "Notification listener rebind component toggled successfully")
+                } catch (e2: Throwable) {
+                    Log.w(TAG, "Component toggle rebind failed: ${e2.message}")
+                }
+            }
+        }
     }
 
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
@@ -169,6 +197,7 @@ class PaymentNotificationListener : NotificationListenerService() {
                         } catch (e: Exception) {
                             val pkgLower = packageName.lowercase()
                             when {
+                                pkgLower.contains("bhim") || pkgLower.contains("npci") -> "BHIM UPI"
                                 pkgLower.contains("kotak") -> "Kotak Bank"
                                 pkgLower.contains("sbi") -> "SBI Bank"
                                 pkgLower.contains("hdfc") -> "HDFC Bank"
