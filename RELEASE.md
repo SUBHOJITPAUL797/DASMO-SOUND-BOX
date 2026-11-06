@@ -32,32 +32,38 @@
 > The In-App Updater parses the `versionCode`, tag, and changelog headers automatically.
 
 ```markdown
-# 🔊 DASMO Sound Box v1.0.5 — Industry-Grade BHIM UPI Engine & Rebind Resilience
+# 🔊 DASMO Sound Box v1.0.6 — App Lock (Pattern & PIN) & Front-Camera Intruder Selfie Shield
 
 ### 🏷️ Metadata
-- **Version:** `v1.0.5`
-- **versionCode:** `6`
+- **Version:** `v1.0.6`
+- **versionCode:** `7`
 - **Package:** `com.aistudio.soundbox.dsmo`
 - **Channel:** Production (Stable)
 - **Minimum OS:** Android 7.0 (API Level 24)
 - **Target OS:** Android 15 (API Level 36)
-- **Release Date:** October 2026
+- **Release Date:** November 2026
 
 ---
 
-### 🚀 Highlights & What's Fixed
+### 🚀 Highlights & What's New
 
-- **🇮🇳 100% Reliable BHIM UPI & NPCI Ecosystem Announcement Engine:**
-  - **High-Confidence Smart Amount Detection:** Extended full privileged smart credit detection to BHIM UPI (`in.org.npci.upiapp`), BHIM Aadhaar Pay, and all major bank BHIM apps. Any notification containing an amount without debit keywords is detected and announced immediately.
-  - **Expanded Bank BHIM UPI Ecosystem:** Added full package recognition for BHIM SBI Pay, BHIM Baroda Pay, BHIM PNB, BHIM BOI, BHIM Union Bank, BHIM Canara, BHIM Cent, BHIM Indian Bank, BHIM IOB, BHIM UCO, BHIM PSB, BHIM IDBI, BHIM Axis Pay, BHIM RBL Pay, BHIM Syndicate, BHIM Corp, BHIM Andhra, and BHIM Allahabad.
-  - **Punctuation-Tolerant Patterns:** Fixed parser failure when notification texts contain colons, hyphens, or exclamation marks (`Money Received: ₹ 500`, `Payment Received - ₹ 1,250`, `Received: ₹ 500`, `Received! ₹ 500`).
-  - **Inverted Phrase Ordering Support:** Added first-class recognition for `"Received from [Payer] ₹ [Amount]"` and `"Money received from [Payer] ₹ [Amount]"`.
-  - **Unicode & Multilingual Hindi Name Extraction:** Replaced ASCII-only name extractors with Unicode property matchers (`\p{L}\p{M}`) to extract Indian names in Hindi (Devanagari), Bengali, Tamil, Telugu, Marathi, and Gujarati scripts cleanly. Added Hindi `"से"` ("from") extraction so sender names in Hindi notifications (e.g. `"रोहित शर्मा से ₹ 500 प्राप्त हुए"`) are announced accurately.
-  - **Grammar Support for Hindi:** Added support for both singular (`प्राप्त हुआ`) and plural (`प्राप्त हुए`) receipt notifications as well as deposit notices (`जमा किए गए`).
+- **🔲 App Lock with Pattern & PIN Options:**
+  - **Pattern Lock:** 3x3 interactive dot grid with smooth gesture lines, vibration tick on dot connection, and error shake animation.
+  - **PIN Lock:** 4-digit numeric keypad with circular indicators and tactile feedback.
+  - **Flexible Setup:** Switch between Pattern and PIN with interactive double-confirm setup dialogs.
+  - **App Protection:** Lock DASMO Sound Box itself, all UPI payment apps (PhonePe, Paytm, Google Pay, BHIM, Cred, etc.), or any installed application on the device.
 
-- **🛡️ Industry-Grade OEM Rebind Resilience:**
-  - **Self-Healing Notification Listener:** Added `rebindIfDisconnected(context)` using component toggling (`setComponentEnabledSetting`) to automatically re-hook the notification listener on reboot, app update, app resume, and watchdog ticks if killed by aggressive OEM battery managers (MIUI, ColorOS, FunTouch, OneUI).
-  - **Watchdog & Boot Self-Recovery:** BootReceiver and 15-minute WatchdogReceiver now actively inspect and heal listener connectivity in the background.
+- **📸 Silent Front-Camera Intruder Selfie Capture:**
+  - On any incorrect Pattern or PIN attempt, the front camera automatically and silently captures a photo of the intruder using the Camera2 API.
+  - Preserves proper sensor orientation and saves securely to app storage without opening any visible camera interface.
+
+- **🚨 Intruder Incident Logs Screen:**
+  - View all unauthorized access attempts in a dedicated security dashboard.
+  - Displays the intruder's selfie photo with full-screen zoom preview.
+  - Shows the attempted app name and app icon (e.g. PhonePe, Paytm, DASMO Sound Box).
+  - Displays the exact date & timestamp of the incident.
+  - One-tap evidence sharing (WhatsApp, etc.) via Android FileProvider and delete/clear controls.
+  - Active home screen security warning banner when unauthorized attempts are detected.
 
 ---
 
@@ -65,7 +71,7 @@
 
 | File | Type | Target Architecture | Size | Checksum (SHA-256) |
 | :--- | :--- | :--- | :--- | :--- |
-| [`dasmo-soundbox-v1.0.5.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.5/dasmo-soundbox-v1.0.5.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 14.5 MB | `d2d7963356ab80ad1855a136b7fa26b2536ce1f1e880a41b65f0bb5571df44ef` |
+| [`dasmo-soundbox-v1.0.6.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.6/dasmo-soundbox-v1.0.6.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 15.3 MB | `94EBCDCC885729F32FA8BD78018F726315554CC1EA161834F5C05B03D631A141` |
 ```
 
 ### 🛠️ Detailed Changelog

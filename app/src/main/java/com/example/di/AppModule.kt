@@ -7,6 +7,7 @@ import com.example.data.database.DedupDao
 import com.example.data.database.TransactionDao
 import com.example.data.repository.SettingsRepositoryImpl
 import com.example.data.repository.TransactionRepositoryImpl
+import com.example.domain.repository.IntruderRepository
 import com.example.domain.repository.SettingsRepository
 import com.example.domain.repository.TransactionRepository
 import com.example.domain.repository.CashbookRepository
@@ -21,6 +22,7 @@ object AppModule {
     @Volatile var transactionRepository: TransactionRepository? = null
     @Volatile var cashbookRepository: CashbookRepository? = null
     @Volatile var settingsRepository: SettingsRepository? = null
+    @Volatile var intruderRepository: IntruderRepository? = null
     @Volatile var saveTransactionUseCase: SaveTransactionUseCase? = null
     @Volatile var paymentEventBus: PaymentEventBus? = null
     @Volatile var dedupEngine: DedupEngine? = null
@@ -49,10 +51,12 @@ object AppModule {
         val transRepo = TransactionRepositoryImpl(db.transactionDao())
         val cashRepo = CashbookRepository(db.cashbookDao())
         val setRepo = SettingsRepositoryImpl(appContext)
+        val intrudeRepo = IntruderRepository(db.intruderDao())
         
         transactionRepository = transRepo
         cashbookRepository = cashRepo
         settingsRepository = setRepo
+        intruderRepository = intrudeRepo
         saveTransactionUseCase = SaveTransactionUseCase(transRepo)
         
         paymentEventBus = PaymentEventBus()

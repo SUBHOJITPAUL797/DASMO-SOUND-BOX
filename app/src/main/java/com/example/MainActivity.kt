@@ -18,6 +18,14 @@ import com.example.presentation.screens.onboarding.OnboardingScreen
 import com.example.service.SoundBoxForegroundService
 import com.example.ui.theme.MyApplicationTheme
 
+import android.content.Intent
+import com.example.presentation.screens.applock.AppLockActivity
+import com.example.util.AppLockManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -61,5 +69,21 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         com.example.service.PaymentNotificationListener.rebindIfDisconnected(this)
+        checkAppLock()
+    }
+
+    private fun checkAppLock() {
+        val settingsRepo = AppModule.settingsRepository ?: return
+        CoroutineScope(Dispatchers.Main).launch {
+            val settings = settingsRepo.getSettings().firstOrNull() ?: return@launch
+            if (settings.appLockEnabled && settings.lockedAppPackages.contains(packageName)) {
+                if (!AppLockManager.isAppTemporarilyUnlocked(packageName)) {
+                    val intent = Intent(this@MainActivity, AppLockActivity::class.java).apply {
+                        putExtra(AppLockActivity.EXTRA_PACKAGE_NAME, packageName)
+                    }
+                    startActivity(intent)
+                }
+            }
+        }
     }
 }

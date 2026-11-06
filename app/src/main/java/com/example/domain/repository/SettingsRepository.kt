@@ -8,4 +8,10 @@ interface SettingsRepository {
     suspend fun updateSettings(transform: suspend (AppSettings) -> AppSettings)
     suspend fun updateIsEnabled(enabled: Boolean)
     suspend fun updateHasCompletedOnboarding(completed: Boolean)
+    suspend fun updateAppLockEnabled(enabled: Boolean)
+    suspend fun updateAppLockType(type: String)
+    suspend fun updateAppLockPin(pin: String)
+    suspend fun updateAppLockPattern(pattern: String)
+    suspend fun updateLockedAppPackages(packages: Set<String>)
+    suspend fun updateIntruderSelfieEnabled(enabled: Boolean)
 }

@@ -10,12 +10,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pattern
+import androidx.compose.material.icons.filled.PhotoCameraFront
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.BuildConfig
+import com.example.di.AppModule
 import com.example.util.update.AppUpdateInfo
 import com.example.util.update.AppUpdateManager
 import com.example.util.update.UpdateStatus
@@ -89,12 +94,17 @@ fun AudioEqualizerWave(isPlaying: Boolean, tintColor: Color = MaterialTheme.colo
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel(),
-    onNavigateToCustomMessage: () -> Unit
+    onNavigateToCustomMessage: () -> Unit,
+    onNavigateToAppLock: () -> Unit = {},
+    onNavigateToIntruderLogs: () -> Unit = {}
 ) {
     val settings by viewModel.uiState.collectAsStateWithLifecycle()
     val availableVoices by viewModel.availableVoices.collectAsStateWithLifecycle()
     val isPlayingPreview by viewModel.isPlayingPreview.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    val intruderRepo = AppModule.intruderRepository
+    val intruderCount by (intruderRepo?.getLogCount() ?: remember { kotlinx.coroutines.flow.emptyFlow<Int>() })
+        .collectAsState(initial = 0)
     
     var languageExpanded by remember { mutableStateOf(false) }
     var voiceExpanded by remember { mutableStateOf(false) }
@@ -739,7 +749,115 @@ fun SettingsScreen(
             item { HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)) }
 
             item {
-                Text("🔒 Security & Admin Access", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                Text("🔒 Security & App Lock", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+            }
+
+            // App Lock Settings Card
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToAppLock() },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (settings.appLockType == "PATTERN") Icons.Default.Pattern else Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Column {
+                                Text("App Lock Protection", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = if (settings.appLockEnabled) {
+                                        "${if (settings.appLockType == "PATTERN") "Pattern Lock" else "PIN Lock"} Active (${settings.lockedAppPackages.size} apps)"
+                                    } else "Disabled • Tap to configure",
+                                    fontSize = 12.sp,
+                                    color = if (settings.appLockEnabled) Color(0xFF22C55E) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = if (settings.appLockEnabled) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Intruder Photos & Logs Card
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToIntruderLogs() },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (intruderCount > 0) Color(0xFFEF4444).copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(if (intruderCount > 0) Color(0xFFEF4444).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoCameraFront,
+                                    contentDescription = null,
+                                    tint = if (intruderCount > 0) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Column {
+                                Text("Intruder Photos & Logs", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = if (intruderCount > 0) "$intruderCount unauthorized attempt${if (intruderCount == 1) "" else "s"} logged!" else "No intruder attempts recorded",
+                                    fontSize = 12.sp,
+                                    color = if (intruderCount > 0) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = if (intruderCount > 0) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = if (intruderCount > 0) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
 
             item {

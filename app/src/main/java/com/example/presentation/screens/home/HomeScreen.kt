@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
@@ -96,11 +97,16 @@ fun HomeScreen(
     onNavigateToHistory: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToKiosk: () -> Unit = {},
-    onNavigateToAnalytics: () -> Unit = {}
+    onNavigateToAnalytics: () -> Unit = {},
+    onNavigateToAppLock: () -> Unit = {},
+    onNavigateToIntruderLogs: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val intruderRepo = AppModule.intruderRepository
+    val intruderCount by (intruderRepo?.getLogCount() ?: remember { kotlinx.coroutines.flow.emptyFlow<Int>() })
+        .collectAsState(initial = 0)
 
     var hasNotificationPermission by remember { mutableStateOf(PermissionHelper.isNotificationListenerEnabled(context)) }
     var isBatteryOptimized by remember { mutableStateOf(!PermissionHelper.isIgnoringBatteryOptimizations(context)) }
@@ -199,6 +205,51 @@ fun HomeScreen(
                                 color = if (isBtConnected) Color(0xFF166534) else MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Intruder Alert Banner
+            if (intruderCount > 0) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigateToIntruderLogs() },
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFEF4444).copy(alpha = 0.15f)),
+                        shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.SecurityUpdateWarning,
+                                contentDescription = null,
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "🚨 $intruderCount Intruder Attempt${if (intruderCount == 1) "" else "s"} Detected!",
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFEF4444),
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    "Unauthorized attempt with wrong PIN/Pattern. Tap to view selfie photos & app logs.",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = Color(0xFFEF4444)
                             )
                         }
                     }
@@ -385,6 +436,68 @@ fun HomeScreen(
                             Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Text("Sales Chart", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                             Text("Reports & CSV", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+
+            // Security Tools Row (App Lock & Intruder Selfie Log)
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onNavigateToAppLock() },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Column {
+                                Text("App Lock", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    if (uiState.appSettings.appLockEnabled) "${if (uiState.appSettings.appLockType == "PATTERN") "Pattern" else "PIN"} Active" else "Disabled",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (uiState.appSettings.appLockEnabled) Color(0xFF16A34A) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onNavigateToIntruderLogs() },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (intruderCount > 0) Color(0xFFEF4444).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.PhotoCameraFront,
+                                contentDescription = null,
+                                tint = if (intruderCount > 0) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary
+                            )
+                            Column {
+                                Text("Intruder Logs", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    if (intruderCount > 0) "$intruderCount Photos" else "0 Incidents",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (intruderCount > 0) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }

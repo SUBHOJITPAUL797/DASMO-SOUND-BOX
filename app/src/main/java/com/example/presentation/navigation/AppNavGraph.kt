@@ -21,6 +21,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.presentation.screens.analytics.AnalyticsScreen
+import com.example.presentation.screens.applock.AppLockSettingsScreen
+import com.example.presentation.screens.applock.IntruderLogsScreen
 import com.example.presentation.screens.custommessage.CustomMessageScreen
 import com.example.presentation.screens.history.HistoryScreen
 import com.example.presentation.screens.home.HomeScreen
@@ -36,6 +38,8 @@ object Routes {
     const val SETTINGS = "settings"
     const val CUSTOM_MESSAGE = "custom_message"
     const val KIOSK = "kiosk"
+    const val APP_LOCK_SETTINGS = "app_lock_settings"
+    const val INTRUDER_LOGS = "intruder_logs"
 }
 
 @Composable
@@ -103,7 +107,9 @@ fun AppNavGraph() {
                     onNavigateToHistory = { navigateToTab(Routes.HISTORY) },
                     onNavigateToSettings = { navigateToTab(Routes.SETTINGS) },
                     onNavigateToKiosk = { navController.navigate(Routes.KIOSK) },
-                    onNavigateToAnalytics = { navigateToTab(Routes.ANALYTICS) }
+                    onNavigateToAnalytics = { navigateToTab(Routes.ANALYTICS) },
+                    onNavigateToAppLock = { navController.navigate(Routes.APP_LOCK_SETTINGS) },
+                    onNavigateToIntruderLogs = { navController.navigate(Routes.INTRUDER_LOGS) }
                 )
             }
             composable(Routes.HISTORY) {
@@ -117,7 +123,9 @@ fun AppNavGraph() {
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
-                    onNavigateToCustomMessage = { navController.navigate(Routes.CUSTOM_MESSAGE) }
+                    onNavigateToCustomMessage = { navController.navigate(Routes.CUSTOM_MESSAGE) },
+                    onNavigateToAppLock = { navController.navigate(Routes.APP_LOCK_SETTINGS) },
+                    onNavigateToIntruderLogs = { navController.navigate(Routes.INTRUDER_LOGS) }
                 )
             }
             composable(Routes.CUSTOM_MESSAGE) {
@@ -128,6 +136,17 @@ fun AppNavGraph() {
             composable(Routes.KIOSK) {
                 KioskScreen(
                     onExit = { navController.popBackStack() }
+                )
+            }
+            composable(Routes.APP_LOCK_SETTINGS) {
+                AppLockSettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onNavigateToIntruderLogs = { navController.navigate(Routes.INTRUDER_LOGS) }
+                )
+            }
+            composable(Routes.INTRUDER_LOGS) {
+                IntruderLogsScreen(
+                    onBack = { navController.popBackStack() }
                 )
             }
         }

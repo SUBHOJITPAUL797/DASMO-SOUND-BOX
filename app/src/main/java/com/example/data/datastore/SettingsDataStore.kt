@@ -45,4 +45,10 @@ object PreferencesKeys {
     val MIN_AMOUNT_THRESHOLD = doublePreferencesKey("min_amount_threshold")
     val SHOP_UPI_ID = stringPreferencesKey("shop_upi_id")
     val SHOP_NAME = stringPreferencesKey("shop_name")
+    val APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
+    val APP_LOCK_TYPE = stringPreferencesKey("app_lock_type")
+    val APP_LOCK_PIN = stringPreferencesKey("app_lock_pin")
+    val APP_LOCK_PATTERN = stringPreferencesKey("app_lock_pattern")
+    val LOCKED_APP_PACKAGES = stringSetPreferencesKey("locked_app_packages")
+    val INTRUDER_SELFIE_ENABLED = booleanPreferencesKey("intruder_selfie_enabled")
 }

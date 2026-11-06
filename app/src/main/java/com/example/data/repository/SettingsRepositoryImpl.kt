@@ -42,7 +42,13 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
                 flashAlertEnabled = preferences[PreferencesKeys.FLASH_ALERT_ENABLED] ?: false,
                 minAmountThreshold = preferences[PreferencesKeys.MIN_AMOUNT_THRESHOLD] ?: 0.0,
                 shopUpiId = preferences[PreferencesKeys.SHOP_UPI_ID] ?: "",
-                shopName = preferences[PreferencesKeys.SHOP_NAME] ?: "My Shop"
+                shopName = preferences[PreferencesKeys.SHOP_NAME] ?: "My Shop",
+                appLockEnabled = preferences[PreferencesKeys.APP_LOCK_ENABLED] ?: false,
+                appLockType = preferences[PreferencesKeys.APP_LOCK_TYPE] ?: "PATTERN",
+                appLockPin = preferences[PreferencesKeys.APP_LOCK_PIN] ?: "",
+                appLockPattern = preferences[PreferencesKeys.APP_LOCK_PATTERN] ?: "",
+                lockedAppPackages = preferences[PreferencesKeys.LOCKED_APP_PACKAGES] ?: emptySet(),
+                intruderSelfieEnabled = preferences[PreferencesKeys.INTRUDER_SELFIE_ENABLED] ?: true
             )
         }
     }
@@ -78,7 +84,13 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
                 flashAlertEnabled = preferences[PreferencesKeys.FLASH_ALERT_ENABLED] ?: false,
                 minAmountThreshold = preferences[PreferencesKeys.MIN_AMOUNT_THRESHOLD] ?: 0.0,
                 shopUpiId = preferences[PreferencesKeys.SHOP_UPI_ID] ?: "",
-                shopName = preferences[PreferencesKeys.SHOP_NAME] ?: "My Shop"
+                shopName = preferences[PreferencesKeys.SHOP_NAME] ?: "My Shop",
+                appLockEnabled = preferences[PreferencesKeys.APP_LOCK_ENABLED] ?: false,
+                appLockType = preferences[PreferencesKeys.APP_LOCK_TYPE] ?: "PATTERN",
+                appLockPin = preferences[PreferencesKeys.APP_LOCK_PIN] ?: "",
+                appLockPattern = preferences[PreferencesKeys.APP_LOCK_PATTERN] ?: "",
+                lockedAppPackages = preferences[PreferencesKeys.LOCKED_APP_PACKAGES] ?: emptySet(),
+                intruderSelfieEnabled = preferences[PreferencesKeys.INTRUDER_SELFIE_ENABLED] ?: true
             )
             val updated = transform(current)
             preferences[PreferencesKeys.IS_ENABLED] = updated.isEnabled
@@ -110,6 +122,12 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
             preferences[PreferencesKeys.MIN_AMOUNT_THRESHOLD] = updated.minAmountThreshold
             preferences[PreferencesKeys.SHOP_UPI_ID] = updated.shopUpiId
             preferences[PreferencesKeys.SHOP_NAME] = updated.shopName
+            preferences[PreferencesKeys.APP_LOCK_ENABLED] = updated.appLockEnabled
+            preferences[PreferencesKeys.APP_LOCK_TYPE] = updated.appLockType
+            preferences[PreferencesKeys.APP_LOCK_PIN] = updated.appLockPin
+            preferences[PreferencesKeys.APP_LOCK_PATTERN] = updated.appLockPattern
+            preferences[PreferencesKeys.LOCKED_APP_PACKAGES] = updated.lockedAppPackages
+            preferences[PreferencesKeys.INTRUDER_SELFIE_ENABLED] = updated.intruderSelfieEnabled
         }
     }
 
@@ -119,5 +137,29 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
 
     override suspend fun updateHasCompletedOnboarding(completed: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.HAS_COMPLETED_ONBOARDING] = completed }
+    }
+
+    override suspend fun updateAppLockEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.APP_LOCK_ENABLED] = enabled }
+    }
+
+    override suspend fun updateAppLockType(type: String) {
+        context.dataStore.edit { it[PreferencesKeys.APP_LOCK_TYPE] = type }
+    }
+
+    override suspend fun updateAppLockPin(pin: String) {
+        context.dataStore.edit { it[PreferencesKeys.APP_LOCK_PIN] = pin }
+    }
+
+    override suspend fun updateAppLockPattern(pattern: String) {
+        context.dataStore.edit { it[PreferencesKeys.APP_LOCK_PATTERN] = pattern }
+    }
+
+    override suspend fun updateLockedAppPackages(packages: Set<String>) {
+        context.dataStore.edit { it[PreferencesKeys.LOCKED_APP_PACKAGES] = packages }
+    }
+
+    override suspend fun updateIntruderSelfieEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.INTRUDER_SELFIE_ENABLED] = enabled }
     }
 }

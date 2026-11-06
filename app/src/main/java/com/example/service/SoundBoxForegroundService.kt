@@ -95,6 +95,20 @@ class SoundBoxForegroundService : LifecycleService() {
         
         startQueueWorker()
         observePaymentEvents()
+        startAppLockMonitor()
+    }
+
+    private fun startAppLockMonitor() {
+        lifecycleScope.launch(Dispatchers.Default) {
+            while (isRunning) {
+                try {
+                    com.example.util.AppLockManager.checkForegroundAndLock(applicationContext)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "Error in AppLock monitoring loop: ${e.message}")
+                }
+                delay(600)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

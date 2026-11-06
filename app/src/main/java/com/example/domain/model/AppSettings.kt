@@ -29,5 +29,11 @@ data class AppSettings(
     val flashAlertEnabled: Boolean = false,
     val minAmountThreshold: Double = 0.0,
     val shopUpiId: String = "",
-    val shopName: String = "My Shop"
+    val shopName: String = "My Shop",
+    val appLockEnabled: Boolean = false,
+    val appLockType: String = "PATTERN", // "PATTERN" or "PIN"
+    val appLockPin: String = "",
+    val appLockPattern: String = "",
+    val lockedAppPackages: Set<String> = emptySet(),
+    val intruderSelfieEnabled: Boolean = true
 )
