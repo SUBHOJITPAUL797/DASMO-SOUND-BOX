@@ -10,8 +10,11 @@ import android.graphics.Color
 object QrCodeGenerator {
 
     fun generateUpiUrl(vpa: String, name: String, amount: Double? = null): String {
-        val cleanVpa = vpa.trim()
-        val cleanName = name.trim().replace(" ", "%20")
+        val cleanVpa = java.net.URLEncoder.encode(vpa.trim(), "UTF-8")
+            .replace("+", "%20")
+            .replace("%40", "@")
+        val cleanName = java.net.URLEncoder.encode(name.trim(), "UTF-8")
+            .replace("+", "%20")
         return buildString {
             append("upi://pay?pa=").append(cleanVpa)
             append("&pn=").append(cleanName)
@@ -78,7 +81,8 @@ private object SimpleQrEncoder {
     }
 
     fun encode(data: String): Array<BooleanArray> {
-        val bytes = data.toByteArray(Charsets.ISO_8859_1)
+        val rawBytes = data.toByteArray(Charsets.ISO_8859_1)
+        val bytes = if (rawBytes.size > 152) rawBytes.copyOf(152) else rawBytes
         val dataLen = bytes.size
 
         // Determine smallest QR version (V2 = 25x25 up to 32 bytes, V3 = 29x29 up to 55 bytes, V4 = 33x33 up to 80 bytes, V5 = 37x37 up to 108 bytes, V6 = 41x41 up to 136 bytes)

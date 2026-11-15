@@ -55,7 +55,7 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
             customSuffix = preferences[PreferencesKeys.CUSTOM_SUFFIX] ?: "Thank you!",
             customTemplates = preferences[PreferencesKeys.CUSTOM_TEMPLATES] ?: "[]",
             activeTemplateIndex = preferences[PreferencesKeys.ACTIVE_TEMPLATE_INDEX] ?: 0,
-            theme = preferences[PreferencesKeys.THEME] ?: "SYSTEM",
+            theme = preferences[PreferencesKeys.THEME] ?: "LIGHT",
             hasCompletedOnboarding = preferences[PreferencesKeys.HAS_COMPLETED_ONBOARDING] ?: false,
             subscriptionStatus = preferences[PreferencesKeys.SUBSCRIPTION_STATUS] ?: "FREE",
             subscriptionExpiryMs = preferences[PreferencesKeys.SUBSCRIPTION_EXPIRY_MS] ?: 0L,

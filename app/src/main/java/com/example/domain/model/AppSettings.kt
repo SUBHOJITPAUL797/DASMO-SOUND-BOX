@@ -18,7 +18,7 @@ data class AppSettings(
     val customSuffix: String = "Thank you!",
     val customTemplates: String = "[]",
     val activeTemplateIndex: Int = 0,
-    val theme: String = "SYSTEM",
+    val theme: String = "LIGHT",
     val hasCompletedOnboarding: Boolean = false,
     val subscriptionStatus: String = "FREE",
     val subscriptionExpiryMs: Long = 0,

@@ -38,6 +38,7 @@ class SoundBoxForegroundService : LifecycleService() {
         const val EXTRA_PAYER_NAME = "extra_payer_name"
         const val EXTRA_REF_ID = "extra_ref_id"
         const val EXTRA_RAW_TEXT = "extra_raw_text"
+        const val EXTRA_SOURCE_TYPE = "extra_source_type"
 
         @Volatile
         var isRunning: Boolean = false
@@ -53,6 +54,7 @@ class SoundBoxForegroundService : LifecycleService() {
                         putExtra(EXTRA_PAYER_NAME, initialEvent.payerName)
                         putExtra(EXTRA_REF_ID, initialEvent.refId)
                         putExtra(EXTRA_RAW_TEXT, initialEvent.rawText)
+                        putExtra(EXTRA_SOURCE_TYPE, initialEvent.sourceType.name)
                     }
                 }
                 ContextCompat.startForegroundService(context, intent)
@@ -123,9 +125,16 @@ class SoundBoxForegroundService : LifecycleService() {
         if (intent != null && intent.hasExtra(EXTRA_AMOUNT)) {
             val amount = intent.getDoubleExtra(EXTRA_AMOUNT, 0.0)
             if (amount > 0.0) {
+                val sourceTypeStr = intent.getStringExtra(EXTRA_SOURCE_TYPE)
+                val sourceType = try {
+                    if (!sourceTypeStr.isNullOrBlank()) com.example.domain.model.SourceType.valueOf(sourceTypeStr)
+                    else com.example.domain.model.SourceType.NOTIFICATION
+                } catch (_: Exception) {
+                    com.example.domain.model.SourceType.NOTIFICATION
+                }
                 val event = PaymentEvent(
                     amount = amount,
-                    sourceType = com.example.domain.model.SourceType.NOTIFICATION,
+                    sourceType = sourceType,
                     sourceApp = intent.getStringExtra(EXTRA_SOURCE_APP) ?: "",
                     sourceAppName = intent.getStringExtra(EXTRA_SOURCE_APP_NAME) ?: "",
                     payerName = intent.getStringExtra(EXTRA_PAYER_NAME),
@@ -238,7 +247,7 @@ class SoundBoxForegroundService : LifecycleService() {
             }
 
             // Coordinate AudioFocus and stream volume BEFORE chime playback
-            ttsEngine.acquireAudioSession(settings.announcementVolume)
+            val sessionToken = ttsEngine.acquireSessionToken(settings.announcementVolume)
             try {
                 if (settings.chimeEnabled) {
                     ChimePlayer.play(applicationContext, settings.chimeSound, settings.announcementVolume)
@@ -255,7 +264,7 @@ class SoundBoxForegroundService : LifecycleService() {
                     manageSession = false
                 )
             } finally {
-                ttsEngine.releaseAudioSession()
+                ttsEngine.releaseSessionToken(sessionToken)
             }
             
             saveTransaction(enrichedEvent, AnnouncementStatus.ANNOUNCED, announcementText)
@@ -274,6 +283,13 @@ class SoundBoxForegroundService : LifecycleService() {
 
     private fun buildNotification(): Notification {
         createNotificationChannel()
+        val settings = AppModule.settingsRepository?.getLatestSettings()
+        val statusText = when {
+            settings?.isEnabled == true && settings.appLockEnabled -> "SoundBox & App Lock active"
+            settings?.isEnabled == true -> "Listening for UPI & Bank payments..."
+            settings?.appLockEnabled == true -> "App Lock & Intruder Shield active"
+            else -> "SoundBox Pro standby"
+        }
         val pendingIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
@@ -281,8 +297,8 @@ class SoundBoxForegroundService : LifecycleService() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("SoundBox Pro")
-            .setContentText("Listening for UPI & Bank payments...")
+            .setContentTitle("DASMO Sound Box")
+            .setContentText(statusText)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setContentIntent(pendingIntent)

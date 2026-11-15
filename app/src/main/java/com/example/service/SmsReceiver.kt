@@ -39,7 +39,10 @@ class SmsReceiver : BroadcastReceiver() {
         if (messages.isNullOrEmpty()) return
 
         val sender = messages.firstOrNull()?.originatingAddress?.uppercase() ?: return
-        
+
+        // Reject Indian TRAI DLT promotional SMS headers (ending in -P)
+        if (sender.endsWith("-P")) return
+
         val isBankSender = BANK_SENDER_KEYWORDS.any { sender.contains(it) } ||
                            TRAI_HEADER_REGEX.matches(sender)
         
@@ -78,14 +81,6 @@ class SmsReceiver : BroadcastReceiver() {
                         else -> "Bank SMS ($sender)"
                     }
 
-                    if (!SoundBoxForegroundService.isRunning && settings.isEnabled) {
-                        try {
-                            SoundBoxForegroundService.start(context)
-                        } catch (e: Throwable) {
-                            Log.w(TAG, "Could not start service: ${e.message}")
-                        }
-                    }
-
                     val event = PaymentEvent(
                         amount = result.amount,
                         sourceType = SourceType.SMS,
@@ -95,7 +90,17 @@ class SmsReceiver : BroadcastReceiver() {
                         refId = result.refId,
                         rawText = fullText
                     )
-                    AppModule.paymentEventBus?.emit(event)
+
+                    val hasSubscriber = (AppModule.paymentEventBus?.events?.subscriptionCount?.value ?: 0) > 0
+                    if ((!SoundBoxForegroundService.isRunning || !hasSubscriber) && settings.isEnabled) {
+                        try {
+                            SoundBoxForegroundService.start(context, event)
+                        } catch (e: Throwable) {
+                            Log.w(TAG, "Could not start service: ${e.message}")
+                        }
+                    } else {
+                        AppModule.paymentEventBus?.emit(event)
+                    }
                 }
             } catch (e: Throwable) {
                 Log.e(TAG, "Error processing incoming SMS payment: ${e.message}", e)

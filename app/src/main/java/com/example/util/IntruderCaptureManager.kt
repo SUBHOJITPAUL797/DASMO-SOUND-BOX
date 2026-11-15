@@ -55,9 +55,16 @@ object IntruderCaptureManager {
         val handler = Handler(handlerThread.looper)
 
         val isCleanedUp = AtomicBoolean(false)
+        val incidentLogged = AtomicBoolean(false)
         var cameraDevice: CameraDevice? = null
         var captureSession: CameraCaptureSession? = null
         var imageReader: ImageReader? = null
+
+        fun logFallbackOnce() {
+            if (incidentLogged.compareAndSet(false, true)) {
+                recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
+            }
+        }
 
         fun cleanup() {
             if (isCleanedUp.compareAndSet(false, true)) {
@@ -75,7 +82,7 @@ object IntruderCaptureManager {
         val timeoutRunnable = Runnable {
             Log.w(TAG, "Intruder capture timed out (8s limit reached). Forcing cleanup.")
             cleanup()
-            recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
+            logFallbackOnce()
         }
         handler.postDelayed(timeoutRunnable, 8000L)
 
@@ -104,7 +111,7 @@ object IntruderCaptureManager {
             if (selectedCameraId == null) {
                 Log.e(TAG, "No camera device available.")
                 cleanup()
-                recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
+                logFallbackOnce()
                 return
             }
 
@@ -136,23 +143,25 @@ object IntruderCaptureManager {
                             // Save image to files dir directly (no double rotation)
                             val photoFile = savePhotoWithOrientation(appContext, bytes, sensorOrientation)
 
-                            // Insert into DB
-                            CoroutineScope(Dispatchers.IO).launch {
-                                try {
-                                    AppModule.getOrInit(appContext)
-                                    AppModule.intruderRepository?.insertLog(
-                                        IntruderLogEntity(
-                                            appPackage = targetPackage,
-                                            appName = targetAppName,
-                                            photoPath = photoFile.absolutePath,
-                                            timestamp = System.currentTimeMillis(),
-                                            lockType = lockType,
-                                            failedAttempts = failedAttempts
+                            // Insert into DB only once
+                            if (incidentLogged.compareAndSet(false, true)) {
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    try {
+                                        AppModule.getOrInit(appContext)
+                                        AppModule.intruderRepository?.insertLog(
+                                            IntruderLogEntity(
+                                                appPackage = targetPackage,
+                                                appName = targetAppName,
+                                                photoPath = photoFile.absolutePath,
+                                                timestamp = System.currentTimeMillis(),
+                                                lockType = lockType,
+                                                failedAttempts = failedAttempts
+                                            )
                                         )
-                                    )
-                                    Log.i(TAG, "Intruder photo successfully logged: ${photoFile.absolutePath} for $targetAppName")
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Failed to insert intruder log entity", e)
+                                        Log.i(TAG, "Intruder photo successfully logged: ${photoFile.absolutePath} for $targetAppName")
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Failed to insert intruder log entity", e)
+                                    }
                                 }
                             }
                         } finally {
@@ -169,6 +178,10 @@ object IntruderCaptureManager {
             cameraManager.openCamera(selectedCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     cameraDevice = camera
+                    if (isCleanedUp.get()) {
+                        try { camera.close() } catch (_: Exception) {}
+                        return
+                    }
                     try {
                         val surface = reader.surface
                         val surfaces = listOf(surface)
@@ -176,6 +189,10 @@ object IntruderCaptureManager {
                         camera.createCaptureSession(surfaces, object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(session: CameraCaptureSession) {
                                 captureSession = session
+                                if (isCleanedUp.get()) {
+                                    try { session.close() } catch (_: Exception) {}
+                                    return
+                                }
                                 try {
                                     val captureBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                                         addTarget(surface)
@@ -190,10 +207,7 @@ object IntruderCaptureManager {
                                             result: TotalCaptureResult
                                         ) {
                                             super.onCaptureCompleted(session, request, result)
-                                            try {
-                                                session.close()
-                                                camera.close()
-                                            } catch (_: Exception) {}
+                                            // Defer closing session and camera to onImageAvailable's cleanup() so JPEG buffer isn't aborted
                                         }
 
                                         override fun onCaptureFailed(
@@ -204,26 +218,26 @@ object IntruderCaptureManager {
                                             super.onCaptureFailed(session, request, failure)
                                             Log.e(TAG, "Capture failed: ${failure.reason}")
                                             cleanup()
-                                            recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
+                                            logFallbackOnce()
                                         }
                                     }, handler)
                                 } catch (e: Exception) {
                                     Log.e(TAG, "Failed to build or start capture request", e)
                                     cleanup()
-                                    recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
+                                    logFallbackOnce()
                                 }
                             }
 
                             override fun onConfigureFailed(session: CameraCaptureSession) {
                                 Log.e(TAG, "Camera capture session configuration failed")
                                 cleanup()
-                                recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
+                                logFallbackOnce()
                             }
                         }, handler)
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed creating capture session", e)
                         cleanup()
-                        recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
+                        logFallbackOnce()
                     }
                 }
 
@@ -236,14 +250,14 @@ object IntruderCaptureManager {
                     Log.e(TAG, "Camera device error: $error")
                     cameraDevice = camera
                     cleanup()
-                    recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
+                    logFallbackOnce()
                 }
             }, handler)
 
         } catch (e: Exception) {
             Log.e(TAG, "Exception during silent intruder photo capture", e)
             cleanup()
-            recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
+            logFallbackOnce()
         }
     }
 

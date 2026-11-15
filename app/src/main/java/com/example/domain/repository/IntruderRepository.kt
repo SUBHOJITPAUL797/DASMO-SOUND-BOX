@@ -3,6 +3,7 @@ package com.example.domain.repository
 import com.example.data.database.IntruderDao
 import com.example.data.database.entity.IntruderLogEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import java.io.File
 
 class IntruderRepository(private val dao: IntruderDao) {
@@ -16,17 +17,26 @@ class IntruderRepository(private val dao: IntruderDao) {
     suspend fun deleteLog(id: Long) {
         val item = dao.getLogById(id)
         item?.photoPath?.let { path ->
-            try {
-                val file = File(path)
-                if (file.exists()) file.delete()
-            } catch (_: Exception) {}
+            if (path.isNotBlank()) {
+                try {
+                    val file = File(path)
+                    if (file.exists()) file.delete()
+                } catch (_: Exception) {}
+            }
         }
         dao.deleteLog(id)
     }
 
     suspend fun clearAllLogs() {
-        val currentLogs = dao.getAllLogs()
-        // Delete all photo files from disk as well
+        val currentLogs = dao.getAllLogs().first()
+        currentLogs.forEach { log ->
+            if (log.photoPath.isNotBlank()) {
+                try {
+                    val file = File(log.photoPath)
+                    if (file.exists()) file.delete()
+                } catch (_: Exception) {}
+            }
+        }
         dao.clearAllLogs()
     }
 }

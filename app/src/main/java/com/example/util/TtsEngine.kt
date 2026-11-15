@@ -16,6 +16,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -44,6 +45,8 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
     private val audioManager = context.getSystemService(AudioManager::class.java)
     private val sessionLock = Any()
     private val activeSessions = AtomicInteger(0)
+    private val sessionGeneration = AtomicInteger(0)
+    private val activeCompletionRef = AtomicReference<CompletableDeferred<Unit>?>(null)
     @Volatile private var originalStreamVolume: Int = -1
     private var pendingLanguage: Locale? = null
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -427,6 +430,21 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         }
     }
 
+    fun acquireSessionToken(volumePercent: Int): Int {
+        synchronized(sessionLock) {
+            acquireAudioSession(volumePercent)
+            return sessionGeneration.get()
+        }
+    }
+
+    fun releaseSessionToken(token: Int) {
+        synchronized(sessionLock) {
+            if (sessionGeneration.get() == token) {
+                releaseAudioSession()
+            }
+        }
+    }
+
     suspend fun announceSuspend(
         text: String,
         volume: Int,
@@ -444,16 +462,15 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
             return
         }
 
-        if (manageSession) {
-            acquireAudioSession(volume)
-        }
+        val sessionToken = if (manageSession) acquireSessionToken(volume) else null
+        val completion = CompletableDeferred<Unit>()
+        activeCompletionRef.set(completion)
         try {
             rate?.let { setSpeechRate(it) }
             pitch?.let { setPitch(it) }
             voiceName?.let { setVoiceByName(it) }
 
             val utteranceId = UUID.randomUUID().toString()
-            val completion = CompletableDeferred<Unit>()
 
             val currentTts = tts ?: return
             currentTts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -462,6 +479,9 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
                     if (id == utteranceId) completion.complete(Unit)
                 }
                 override fun onError(id: String?) {
+                    if (id == utteranceId) completion.complete(Unit)
+                }
+                override fun onStop(id: String?, interrupted: Boolean) {
                     if (id == utteranceId) completion.complete(Unit)
                 }
             })
@@ -482,6 +502,9 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
                             override fun onError(id: String?) {
                                 if (id == utteranceId) completion.complete(Unit)
                             }
+                            override fun onStop(id: String?, interrupted: Boolean) {
+                                if (id == utteranceId) completion.complete(Unit)
+                            }
                         })
                         val retryResult = retryTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
                         if (retryResult != TextToSpeech.ERROR) {
@@ -497,8 +520,9 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         } catch (e: Exception) {
             Log.e(TAG, "Exception during announceSuspend: ${e.message}", e)
         } finally {
-            if (manageSession) {
-                releaseAudioSession()
+            activeCompletionRef.compareAndSet(completion, null)
+            if (sessionToken != null) {
+                releaseSessionToken(sessionToken)
             }
         }
     }
@@ -512,33 +536,43 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
     ) {
         ensureInitialized()
         if (!isInitialized) return
+        val sessionToken = acquireSessionToken(volume)
+        val released = AtomicBoolean(false)
+        fun releaseOnce() {
+            if (released.compareAndSet(false, true)) {
+                releaseSessionToken(sessionToken)
+            }
+        }
+
         try {
-            acquireAudioSession(volume)
             rate?.let { setSpeechRate(it) }
             pitch?.let { setPitch(it) }
             voiceName?.let { setVoiceByName(it) }
 
             val utteranceId = UUID.randomUUID().toString()
             val currentTts = tts ?: run {
-                releaseAudioSession()
+                releaseOnce()
                 return
             }
             currentTts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) {}
                 override fun onDone(id: String?) {
-                    if (id == utteranceId) releaseAudioSession()
+                    if (id == utteranceId) releaseOnce()
                 }
                 override fun onError(id: String?) {
-                    if (id == utteranceId) releaseAudioSession()
+                    if (id == utteranceId) releaseOnce()
+                }
+                override fun onStop(id: String?, interrupted: Boolean) {
+                    if (id == utteranceId) releaseOnce()
                 }
             })
             val res = currentTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
             if (res == TextToSpeech.ERROR) {
-                releaseAudioSession()
+                releaseOnce()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Exception in announce: ${e.message}")
-            releaseAudioSession()
+            releaseOnce()
         }
     }
 
@@ -549,6 +583,8 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
             Log.w(TAG, "Error stopping TTS: ${e.message}")
         } finally {
             synchronized(sessionLock) {
+                sessionGeneration.incrementAndGet()
+                activeCompletionRef.getAndSet(null)?.complete(Unit)
                 activeSessions.set(0)
                 restoreVolumeLocked()
                 releaseAudioFocus()

@@ -10,21 +10,35 @@ object PaymentParser {
         "debited", "deducted", "amount debited", "debited from", "paid from your", "paid from a/c",
         "transferred from your", "sent from your", "you paid", "you sent", "you have paid", "you have sent",
         "failed", "declined", "reversed", "refund initiated", "purchase of", "bill payment",
-        "dr in", "dr.", "paid at"
+        "dr in", "dr.", "paid at", "spent on", "withdrawn"
     )
 
     private val REQUEST_KEYWORDS = listOf(
         "requested", "payment request", "requests", "request from", "request to",
-        "has requested", "requested you", "collect request", "request for"
+        "has requested", "requested you", "collect request", "request for",
+        "is requesting", "asked for", "requesting ₹", "requesting rs"
     )
 
-    private val CREDIT_KEYWORDS = listOf(
-        "received", "credited", "credit", "added", "deposited",
-        "sent to your", "sent to you", "paid to you", "paid to your", "transferred to you", "transferred to your",
-        "money received", "amount received", "payment received", "cr", "cr.", "cr in", "gained",
-        "sent you", "paid you", "loaded with", "money in!", "payment from", "received from",
-        "received in your", "credited to", "credited in", "deposited in", "deposited to",
-        "प्राप्त", "मिले", "भेजे", "जमा", "सफल"
+    /**
+     * Rejects promotional notifications, WhatsApp/SMS loan offers, deposit/FD/investment alerts,
+     * cashback/scratch-card offers, bill-due reminders, autopay mandates, OTPs, and failed/pending states.
+     */
+    private val PROMO_LOAN_EXCLUDE_REGEX = Regex(
+        """(?i)(?:\b(?:loan|loans|pre-?approved|preapproved|credit\s+limit|credit\s+line|credit\s+score|cibil|pay\s*later|borrow|emi|sanctioned|eligibility|eligible\s+for|apply\s+now|claim\s+now|avail\s+now|unlock\s+up\s+to|cashback\s+up\s+to|win\s+up\s+to|earn\s+up\s+to|get\s+up\s+to|up\s+to\s*(?:₹|rs\.?|inr)|flat\s*(?:₹|rs\.?|inr)|scratch\s*card|voucher|coupon|jackpot|refer\s*(?:&|and)\s*earn|referral|discount|%\s*off|offer|offers|limited\s+(?:time|period)|festive\s+deal|fixed\s+deposit|recurring\s+deposit|term\s+deposit|security\s+deposit|minimum\s+deposit|initial\s+deposit|deposit\s+now|make\s+a\s+deposit|deposit\s+money|deposit\s+to|deposit\s+of|deposit\s+alert|deposit\s+successful|fd\s+booked|fd\s+matured|add\s+money\s+to|mutual\s+fund|sip\s+of|insurance|premium\s+due|bill\s+due|payment\s+due|due\s+date|due\s+on|overdue|pay\s+before|pay\s+by|autopay|mandate|upcoming\s+payment|scheduled\s+payment|reminder|recharge\s+now|expiring|expires\s+on|otp|one\s+time\s+password|verification\s+code|interest\s+rate|processing\s+fee|kyc\s+pending|complete\s+kyc|pending|processing|initiated|cancelled|canceled|unsuccessful|timed\s+out|congratulations|you\s+won|won\s+(?:₹|rs))\b|लोन|ऋण|ऑफर|कैशबैक|ब्याज|किस्त|ईएमआई|बकाया|ओटीपी)"""
+    )
+
+    /**
+     * Rejects standalone "deposit" prompts (e.g. "Deposit ₹3500...") while still allowing genuine
+     * bank credit wording like "Rs 5000 deposited in your A/c XX1234".
+     */
+    private val STANDALONE_DEPOSIT_NOUN_REGEX = Regex("""(?i)\bdeposit\b""")
+
+    private val BALANCE_ONLY_REGEX = Regex(
+        """(?i)\b(?:available\s+balance|avl\.?\s+bal|account\s+balance|wallet\s+balance|total\s+balance|check\s+balance)\b"""
+    )
+
+    private val CREDIT_KEYWORD_REGEX = Regex(
+        """(?i)(?:\b(?:received|credited|added\s+to|sent\s+to\s+your|sent\s+to\s+you|paid\s+to\s+you|paid\s+to\s+your|transferred\s+to\s+you|transferred\s+to\s+your|money\s+received|amount\s+received|payment\s+received|cr|gained|sent\s+you|paid\s+you|loaded\s+with|money\s+in|payment\s+from|received\s+from|received\s+in\s+your|credited\s+to|credited\s+in|deposited\s+in\s+your|deposited\s+to\s+your|has\s+been\s+deposited)\b|प्राप्त|मिले|भेजे|जमा\s+(?:हुए|हुआ|किए))"""
     )
 
     private val NON_NAME_KEYWORDS = setOf(
@@ -36,14 +50,13 @@ object PaymentParser {
         "money", "your", "inr", "rs", "rupees", "ref", "vpa", "txn",
         "online", "instant", "successful", "success", "request", "order",
         "business", "bharatpe", "super", "supermoney", "navi", "tataneu",
-        "paid", "sent", "done", "paisa"
+        "paid", "sent", "done", "paisa", "loan", "offer", "deposit"
     )
 
     // =========================================================================
     // PRE-COMPILED STATIC REGEX CONSTANTS (ELIMINATES DYNAMIC RUNTIME OVERHEAD)
     // =========================================================================
 
-    // Top-level payment detection patterns (anchored at start to eliminate catastrophic sliding-window backtracking)
     private val NAME_FIRST_PATTERN = Regex(
         """^([\p{L}\p{M}0-9\s.]{2,40}?)(?:\s*\([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\))?\s+(?:has\s+)?(?:sent|paid)\s+(?:you\s+)?(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)""",
         RegexOption.IGNORE_CASE
@@ -64,99 +77,80 @@ object PaymentParser {
         RegexOption.IGNORE_CASE
     )
 
-    // 19 pre-compiled credit detection patterns
     private val CREDIT_PATTERNS = listOf(
         // "credited by/with/of Rs 500" or "credited with INR 500.00"
         Regex("""(?:credited|credit)\s+(?:by|with|of|for)?\s*(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
-        // "Rs 500 has been credited/deposited/added" or "Rs 500 successfully credited/received"
-        Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:has\s+been\s+)?(?:successfully\s+)?(?:credited|credit|added|deposited|received)(?:\s+successfully)?""", RegexOption.IGNORE_CASE),
-        // "received / money received / payment received: Rs 500" (with optional colon/dash/exclamation)
-        Regex("""(?:(?:payment|money|amount)\s+)?(?:received|got|credit|credited|you've\s+received|you\s+have\s+received)\s*[:!–-]?\s*(?:a\s+)?(?:payment\s+of\s+)?(?:of\s+)?(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
+        // "Rs 500 has been credited/received" or "Rs 500 successfully credited/received"
+        Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:has\s+been\s+)?(?:successfully\s+)?(?:credited|added\s+to\s+your|deposited\s+(?:in|to)\s+your|received)(?:\s+successfully)?""", RegexOption.IGNORE_CASE),
+        // "received / money received / payment received: Rs 500"
+        Regex("""(?:(?:payment|money|amount)\s+)?(?:received|got|credited|you've\s+received|you\s+have\s+received)\s*[:!–-]?\s*(?:a\s+)?(?:payment\s+of\s+)?(?:of\s+)?(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
         // "payment/money/amount received: ₹500"
         Regex("""(?:payment|money|amount)\s+received\s*[:!–-]?\s*(?:of|for)?\s*(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
-        // "Rs 500 received / deposited / added / sent to your a/c"
-        Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:has\s+been\s+)?(?:received|sent\s+to\s+your|paid\s+to\s+your|deposited|added\s+to|transferred\s+to)""", RegexOption.IGNORE_CASE),
+        // "Rs 500 received / sent to your / paid to your / transferred to your a/c"
+        Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:has\s+been\s+)?(?:received|sent\s+to\s+your|paid\s+to\s+your|deposited\s+(?:in|to)\s+your|added\s+to\s+your|transferred\s+to\s+your)""", RegexOption.IGNORE_CASE),
         // "sent/transferred/paid ₹ 500 to your account"
         Regex("""(?:sent|transferred|paid)\s+(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:to\s+your|to\s+you)""", RegexOption.IGNORE_CASE),
-        // "₹ 500 received from Rohit Sharma" or "₹ 500 from Rohit Sharma"
+        // "₹ 500 received from Rohit Sharma"
         Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:received\s+)?(?:from)\s+([\p{L}\p{M}0-9\s.]{2,40})""", RegexOption.IGNORE_CASE),
         // "a/c ending *1234 credited with Rs 500"
         Regex("""a\/c\s*[\w*]*\s*(?:is|has\s+been)?\s*credited\s*(?:by|with|of)?\s*(?:₹\s*|Rs\.?\s*|INR\s*)?([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
         // "UPI/CR/500" or "IMPS CR Rs. 500"
         Regex("""(?:UPI|NEFT|IMPS|RTGS)[\/\s]*(?:CR|CREDIT)[\/\s:]*(?:₹\s*|Rs\.?\s*|INR\s*)?([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
-        // "sent you Rs. 500" / "paid you Rs 500" / "transferred ₹ 500"
-        Regex("""(?:sent\s+you|paid\s+you|transferred\s+you|paid\s+to\s+you|transferred)\s*(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
+        // "sent you Rs. 500" / "paid you Rs 500" / "transferred you ₹ 500"
+        Regex("""(?:sent\s+you|paid\s+you|transferred\s+you|paid\s+to\s+you)\s*(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
         // "Kotak: Rs 500 credited"
         Regex("""Kotak.*?(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:credited|received)""", RegexOption.IGNORE_CASE),
         // "BHIM: ₹ 500 received" or "BHIM UPI: ₹ 500 received"
         Regex("""(?:BHIM|BHIM\s+UPI|UPI)[\s:–-]+(?:₹\s*|Rs\.?\s*|INR\s*)?([\d,]+(?:\.\d{1,2})?)\s*(?:₹\s*|Rs\.?\s*|INR\s*)?\s*(?:received|credited)""", RegexOption.IGNORE_CASE),
         // "500.00 rupees received / credited"
-        Regex("""([\d,]+(?:\.\d{1,2})?)\s*(?:₹\s*|rupees?|inr|rs\.?)\s+(?:received|credited|deposited|added)""", RegexOption.IGNORE_CASE),
+        Regex("""([\d,]+(?:\.\d{1,2})?)\s*(?:₹\s*|rupees?|inr|rs\.?)\s+(?:received|credited)""", RegexOption.IGNORE_CASE),
         // "Payment of Rs 500.00 received"
         Regex("""(?:Payment|Money)\s+of\s+(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)\s+received""", RegexOption.IGNORE_CASE),
         // "Money in! ₹500"
         Regex("""(?:Money\s+in!?|Loaded\s+with)\s*(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
-        // "deposited / added ₹500"
-        Regex("""(?:deposited|added)\s+(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
         // "credited to account ... ₹500"
         Regex("""(?:credited\s+(?:to|in|into|with|for)\s+[^0-9\n]{0,35}?)(?:₹\s*|Rs\.?\s*|INR\s*|rupees?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
-        // Hindi: "₹ 500 प्राप्त हुए / प्राप्त हुआ / मिले / जमा"
-        Regex("""(?:₹\s*|Rs\.?\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:प्राप्त\s+हुए?|मिले|जमा(?:\s+हुए?|\s+किए\s+गए)?)(?:\s+हैं?)?""", RegexOption.IGNORE_CASE),
+        // Hindi: "₹ 500 प्राप्त हुए / प्राप्त हुआ / मिले / जमा हुए"
+        Regex("""(?:₹\s*|Rs\.?\s*)([\d,]+(?:\.\d{1,2})?)\s+(?:प्राप्त\s+हुए?|मिले|जमा\s+(?:हुए?|किए\s+गए))(?:\s+हैं?)?""", RegexOption.IGNORE_CASE),
         // Hindi: "भुगतान प्राप्त हुआ: ₹ 500"
         Regex("""(?:भुगतान|रुपये|पैसे)\s+प्राप्त\s+हुए?\s*[:!–-]?\s*(?:₹\s*|Rs\.?\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
     )
 
-    // Known payment app amount pattern
     private val APP_AMOUNT_PATTERN = Regex(
         """(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)|([\d,]+(?:\.\d{1,2})?)\s*(?:₹|Rs\.?|INR|rupees?)""",
         RegexOption.IGNORE_CASE
     )
 
-    // Secondary fallback amount patterns
     private val SECONDARY_AMOUNT_PATTERNS = listOf(
         Regex("""(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE),
         Regex("""([\d,]+(?:\.\d{1,2})?)\s*(?:₹\s*|Rs\.?|rupees?)""", RegexOption.IGNORE_CASE)
     )
 
-    // 10 pre-compiled payer name extraction patterns
     private val PAYER_NAME_PATTERNS = listOf(
-        // "from Rohit Sharma via Google Pay" or "from Suresh Kumar on PhonePe" or "from Rohit Sharma (rohit@upi)"
         Regex("""(?:from|by\s+transfer\s+from|payment\s+from|transfer\s+from)\s+([\p{L}\p{M}0-9\s.]{2,40}?)(?:\s+(?:via|on|through|using|with|ref|upi|vpa|a\/c|acct|balance|bal|txn|trans|at|dated|for|rupees?)\b|\s*[:–-]?\s*(?:₹|Rs\.?|INR)\b|\s*[:–-]\s*|\s*[\(\)]|\.|\(|-|,|$)""", RegexOption.IGNORE_CASE),
-        // "sent by Rohit Sharma" or "paid by Rohit Sharma"
         Regex("""(?:sent|paid)\s+by\s+([\p{L}\p{M}0-9\s.]{2,40}?)(?:\s+(?:via|on|through|using|ref|upi|vpa|rupees?)\b|\s*[:–-]?\s*(?:₹|Rs\.?|INR)\b|\s*[:–-]\s*|\s*[\(\)]|\.|\(|-|,|$)""", RegexOption.IGNORE_CASE),
-        // "Rohit Sharma sent you ₹500" / "Rohit Sharma has paid" / "Rohit Sharma sent ₹500" (anchored at start)
         Regex("""^([\p{L}\p{M}\s.]{2,30}?)(?:\s*\([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\))?\s+(?:has\s+)?(?:sent\s+you|paid\s+you|transferred|paid|sent)\s+(?:₹|Rs|INR|[\d])""", RegexOption.IGNORE_CASE),
-        // "VPA rohit@upi (Rohit Sharma)"
         Regex("""(?:VPA\s+[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\s*\()([\p{L}\p{M}\s.]{2,30}?)\)""", RegexOption.IGNORE_CASE),
-        // "UPI/423456789012/Pooja Jain/Paytm" or "UPI/CR/423456789012/Sunita"
         Regex("""UPI\/(?:CR\/|P2A\/|P2P\/)?(?:\d+\/)?([\p{L}\p{M}\s.]{2,30}?)(?:\/|\.|\$|\n)""", RegexOption.IGNORE_CASE),
-        // "UPI-ASHISH KUMAR-ashish@oksbi"
         Regex("""UPI-([\p{L}\p{M}\s.]{2,30}?)-(?:[a-zA-Z0-9@.]+)""", RegexOption.IGNORE_CASE),
-        // "Info: UPI/423456789012/Pooja Jain"
         Regex("""Info:\s*UPI\/(?:\d+\/)?([\p{L}\p{M}\s.]{2,30}?)(?:\/|\.|\$|\n)""", RegexOption.IGNORE_CASE),
-        // "by Suresh Kumar UPI Ref"
         Regex("""by\s+([\p{L}\p{M}\s.]{2,30}?)(?:\s+UPI|\s+Ref|\s+on|\s+a\/c|\.|\$|$)""", RegexOption.IGNORE_CASE),
-        // Hindi: "रोहित शर्मा ने ₹ 500 भेजे"
         Regex("""([^\n\r]+?)\s+ने\s+(?:₹\s*|Rs\.?\s*|INR\s*)""", RegexOption.IGNORE_CASE),
-        // Hindi: "रोहित शर्मा से ₹ 500 प्राप्त हुए" or "रोहित शर्मा से भुगतान"
         Regex("""([^\n\r]+?)\s+से\s+(?:₹\s*|Rs\.?\s*|INR\s*|भुगतान)""", RegexOption.IGNORE_CASE)
     )
 
-    // 3 pre-compiled reference ID extraction patterns
     private val REF_ID_PATTERNS = listOf(
         Regex("""(?:UPI\s*Ref(?:\s*No)?|UPI\s*Reference(?:\s*No)?|Ref\s*No|Reference\s*No|RRN|UTR)[\s/:-]+(\d{12})\b""", RegexOption.IGNORE_CASE),
         Regex("""(?:UPI|IMPS|NEFT)[\/](?:CR\/|P2A\/|P2P\/)?(\d{12})\b""", RegexOption.IGNORE_CASE),
         Regex("""(?:Ref(?:\s*No)?|Txn\s*Id|Transaction\s*Id)[\s/:-]+([A-Za-z0-9]{8,18})\b""", RegexOption.IGNORE_CASE)
     )
 
-    // Name sanitization patterns
     private val NAME_CANDIDATE_REGEX = Regex("""[\p{L}\p{M}\s.]{2,}""")
     private val VPA_PAREN_REGEX = Regex("""\([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\)""")
     private val VPA_ANGLE_REGEX = Regex("""<[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+>""")
     private val VPA_DASH_REGEX = Regex("""[-–]\s*[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+""")
     private val VPA_PLAIN_REGEX = Regex("""[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+""")
 
-    // Pre-compiled combined noise word cleanup pattern (single-pass alternation eliminates 14 sequential passes)
     private val COMBINED_NOISE_REGEX = Regex(
         """(?i)\b(?:via|on|using|through|upi|gpay|phonepe|paytm|bhim|cred|amazon|ref(?:\s*no)?|vpa)\b.*$"""
     )
@@ -164,35 +158,52 @@ object PaymentParser {
     private val WHITESPACE_REGEX = Regex("""\s+""")
 
     fun parse(text: String, fallbackTitle: String? = null, packageName: String? = null): ParseResult {
-        // Normalize whitespace, non-breaking spaces (\u00A0, \u202F) and zero-width spaces
         val cleanText = text.replace('\u00A0', ' ')
             .replace('\u202F', ' ')
             .replace('\u200B', ' ')
             .replace('\uFEFF', ' ')
             .trim()
 
+        if (cleanText.isBlank()) {
+            return ParseResult(amount = null, isCredit = false, rawText = text)
+        }
+
         val cleanFallbackTitle = fallbackTitle?.replace('\u00A0', ' ')
             ?.replace('\u202F', ' ')
             ?.replace('\u200B', ' ')
             ?.trim()
 
-        // Normalize "credit card" to prevent false positive credit matches on credit card debits
         val normalized = cleanText.lowercase().replace("credit card", "cc_card")
-        
-        // Strict payment request rejection
+
+        // 1. Strict rejection of payment requests
         if (REQUEST_KEYWORDS.any { normalized.contains(it) }) {
             return ParseResult(amount = null, isCredit = false, rawText = text)
         }
 
+        // 2. Strict rejection of loans, promotional offers, deposit prompts, FD/RD, bills, OTPs, and pending/failed alerts
+        if (PROMO_LOAN_EXCLUDE_REGEX.containsMatchIn(cleanText) || STANDALONE_DEPOSIT_NOUN_REGEX.containsMatchIn(cleanText)) {
+            return ParseResult(amount = null, isCredit = false, rawText = text)
+        }
+
+        // 3. Reject credit card alerts unless explicitly credited to bank A/c (which never contains cc_card without debit/statement)
+        if (normalized.contains("cc_card") && !normalized.contains("credited to")) {
+            return ParseResult(amount = null, isCredit = false, rawText = text)
+        }
+
         val hasDebitKeyword = DEBIT_KEYWORDS.any { normalized.contains(it) }
-        val hasCreditKeyword = CREDIT_KEYWORDS.any { normalized.contains(it) }
-        
-        // Strict debit exclusion: if contains debit keyword and no credit keyword
+        val hasCreditKeyword = CREDIT_KEYWORD_REGEX.containsMatchIn(cleanText)
+
+        // 4. Strict debit exclusion
         if (hasDebitKeyword && !hasCreditKeyword) {
             return ParseResult(amount = null, isCredit = false, rawText = text)
         }
 
-        // Specific pattern: "Rohit Sharma sent you ₹ 500" or "Rohit Sharma has sent ₹ 500" or "Rohit Sharma paid ₹ 500"
+        // 5. Reject balance-only check alerts (e.g., "Available Balance ₹5,000") when no credit keyword is present
+        if (BALANCE_ONLY_REGEX.containsMatchIn(cleanText) && !hasCreditKeyword) {
+            return ParseResult(amount = null, isCredit = false, rawText = text)
+        }
+
+        // 6. Specific pattern: "Rohit Sharma sent you ₹ 500" or "Rohit Sharma paid ₹ 500"
         if (normalized.contains("sent") || normalized.contains("paid")) {
             val nameFirstMatch = NAME_FIRST_PATTERN.find(cleanText)
             if (nameFirstMatch != null) {
@@ -211,7 +222,7 @@ object PaymentParser {
             }
         }
 
-        // Specific Hindi pattern: "रोहित शर्मा ने ₹ 500 भेजे"
+        // 7. Specific Hindi pattern: "रोहित शर्मा ने ₹ 500 भेजे"
         if (cleanText.contains("भेजे")) {
             val hindiMatch = HINDI_NAME_FIRST_PATTERN.find(cleanText)
             if (hindiMatch != null) {
@@ -230,7 +241,7 @@ object PaymentParser {
             }
         }
 
-        // Specific Hindi pattern with "से" (from): "रोहित शर्मा से ₹ 500 प्राप्त हुए / प्राप्त हुआ"
+        // 8. Specific Hindi pattern with "से" (from): "रोहित शर्मा से ₹ 500 प्राप्त हुए"
         if (cleanText.contains("से") && (cleanText.contains("प्राप्त") || cleanText.contains("मिले"))) {
             val hindiFromMatch = HINDI_FROM_PATTERN.find(cleanText)
             if (hindiFromMatch != null) {
@@ -249,7 +260,7 @@ object PaymentParser {
             }
         }
 
-        // Specific pattern: "Received from Rohit Sharma ₹ 500" or "Money received from Rohit Sharma: ₹ 500"
+        // 9. Specific pattern: "Received from Rohit Sharma ₹ 500"
         if (normalized.contains("from") && (normalized.contains("received") || normalized.contains("credited"))) {
             val receivedFromMatch = RECEIVED_FROM_PATTERN.find(cleanText)
             if (receivedFromMatch != null) {
@@ -267,7 +278,8 @@ object PaymentParser {
                 }
             }
         }
-        
+
+        // 10. Explicit credit patterns
         for (pattern in CREDIT_PATTERNS) {
             val match = pattern.find(cleanText)
             if (match != null) {
@@ -280,35 +292,17 @@ object PaymentParser {
                 }
             }
         }
-        
-        // High-confidence payment app detection:
-        // When notification is from BHIM, Google Pay, PhonePe, Paytm, BharatPe or any known payment app,
-        // any incoming notification with an amount (without debit / request keywords) represents a received payment!
-        val isTrustedPaymentApp = (packageName != null && (
-            packageName == "in.org.npci.upiapp" ||
-            packageName == "in.org.npci.bhim.aadhaarpay" ||
-            packageName == "com.google.android.apps.nbu.paisa.user" ||
-            packageName == "com.google.android.apps.nbu.paisa.merchant" ||
-            packageName == "com.phonepe.app" ||
-            packageName == "com.phonepe.merchant.app" ||
-            packageName == "com.phonepe.app.business" ||
-            packageName == "net.one97.paytm" ||
-            packageName == "com.paytm.business" ||
-            packageName == "in.bharatpe.merchant" ||
-            packageName == "in.bharatpe.app" ||
-            packageName.contains("bhim") ||
-            packageName.contains("npci") ||
-            packageName.contains("paisa") ||
-            packageName.contains("gpay") ||
-            KnownPaymentApps.packageNames.containsKey(packageName)
-        )) || normalized.contains("bhim") ||
-              normalized.contains("google pay") ||
-              normalized.contains("gpay") ||
-              normalized.contains("phonepe") ||
-              normalized.contains("paytm") ||
-              normalized.contains("bharatpe")
 
-        if (isTrustedPaymentApp && !hasDebitKeyword) {
+        // 11. High-confidence UPI-only payment app fallback:
+        // ONLY allowed for verified pure UPI/merchant packages (NEVER WhatsApp, SMS, or loan/promo apps)
+        val isPureUpiPackage = packageName != null && (
+            KnownPaymentApps.TRUSTED_UPI_ONLY_PACKAGES.contains(packageName) ||
+                packageName.contains("npci") ||
+                packageName.contains("bhim") ||
+                packageName.contains("paisa")
+            )
+
+        if (isPureUpiPackage && !hasDebitKeyword) {
             val match = APP_AMOUNT_PATTERN.find(cleanText)
             if (match != null) {
                 val rawGroup = if (match.groupValues[1].isNotBlank()) match.groupValues[1] else match.groupValues[2]
@@ -322,8 +316,8 @@ object PaymentParser {
             }
         }
 
-        // Secondary fallback if credit keyword present
-        if (hasCreditKeyword) {
+        // 12. Secondary fallback only if a verified word-boundary credit keyword is present
+        if (hasCreditKeyword && !hasDebitKeyword) {
             for (pattern in SECONDARY_AMOUNT_PATTERNS) {
                 val match = pattern.find(cleanText)
                 if (match != null) {
@@ -337,7 +331,7 @@ object PaymentParser {
                 }
             }
         }
-        
+
         return ParseResult(amount = null, isCredit = false, rawText = text)
     }
 
@@ -351,7 +345,6 @@ object PaymentParser {
         val lowerText = cleanText.lowercase()
 
         for ((index, pattern) in PAYER_NAME_PATTERNS.withIndex()) {
-            // Fast keyword pre-checks to bypass regex evaluation on unmatched strings
             val shouldEvaluate = when (index) {
                 0 -> lowerText.contains("from")
                 1 -> lowerText.contains("by")
@@ -374,7 +367,6 @@ object PaymentParser {
             }
         }
 
-        // If not found in body, check fallback title (e.g. Google Pay notification title = sender name)
         if (!fallbackTitle.isNullOrBlank()) {
             val cleanedTitle = sanitizeAndFormatName(fallbackTitle)
             if (cleanedTitle != null) {
@@ -403,8 +395,7 @@ object PaymentParser {
 
     private fun sanitizeAndFormatName(raw: String): String? {
         var name = raw.trim()
-        
-        // If it contains phone number slash name: "9876543210/Rajesh" or "Rajesh / 9876543210"
+
         if (name.contains("/")) {
             val parts = name.split("/")
             val candidate = parts.firstOrNull { it.trim().matches(NAME_CANDIDATE_REGEX) }
@@ -413,28 +404,22 @@ object PaymentParser {
             }
         }
 
-        // Remove email/VPA addresses (e.g. user@okhdfcbank or (user@upi) or <user@upi>)
         name = name.replace(VPA_PAREN_REGEX, "")
         name = name.replace(VPA_ANGLE_REGEX, "")
         name = name.replace(VPA_DASH_REGEX, "")
         name = name.replace(VPA_PLAIN_REGEX, "")
 
-        // Remove unwanted trailing noise words in a single pass
         name = name.replace(COMBINED_NOISE_REGEX, "")
 
-        // Strip non-letter/non-combining-mark punctuation from ends
         name = name.trim {
             !it.isLetterOrDigit() &&
-            Character.getType(it).toByte() != Character.NON_SPACING_MARK &&
-            Character.getType(it).toByte() != Character.COMBINING_SPACING_MARK
+                Character.getType(it).toByte() != Character.NON_SPACING_MARK &&
+                Character.getType(it).toByte() != Character.COMBINING_SPACING_MARK
         }
 
         if (name.length < 2 || name.length > 35) return null
-
-        // Check if name is purely numeric or special chars
         if (!name.any { it.isLetter() }) return null
 
-        // Check against known system/banking words
         val lowerWords = name.lowercase().split(WHITESPACE_REGEX)
         if (lowerWords.any { NON_NAME_KEYWORDS.contains(it) } && lowerWords.size == 1) {
             return null
@@ -443,7 +428,6 @@ object PaymentParser {
             return null
         }
 
-        // Format to Title Case for smooth and natural TTS pronunciation
         return name.split(" ")
             .filter { it.isNotBlank() }
             .joinToString(" ") { word ->

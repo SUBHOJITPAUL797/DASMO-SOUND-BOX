@@ -22,6 +22,8 @@ object AppLockManager {
     private const val UNLOCK_TIMEOUT_MS = 60_000L // 60 seconds grace period while switching
 
     var lastForegroundPackage: String? = null
+    @Volatile private var lastLockPromptPackage: String? = null
+    @Volatile private var lastLockPromptTimeMs: Long = 0L
 
     fun isAppTemporarilyUnlocked(packageName: String): Boolean {
         val unlockTime = unlockedSessionMap[packageName] ?: return false
@@ -75,7 +77,7 @@ object AppLockManager {
 
         val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return null
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 10_000 // Last 10 seconds
+        val startTime = endTime - 60_000 // Last 60 seconds
 
         val events = usageStatsManager.queryEvents(startTime, endTime)
         val event = UsageEvents.Event()
@@ -114,6 +116,7 @@ object AppLockManager {
     suspend fun checkForegroundAndLock(context: Context) {
         val settings = AppModule.settingsRepository?.getSettings()?.firstOrNull() ?: return
         if (!settings.appLockEnabled) return
+        if (settings.appLockPattern.isBlank() && settings.appLockPin.isBlank()) return
 
         val foreground = getForegroundPackage(context) ?: return
         if (foreground == context.packageName) return // We handle our own internal locks via activity/screen
@@ -121,12 +124,22 @@ object AppLockManager {
 
         if (settings.lockedAppPackages.contains(foreground)) {
             if (!isAppTemporarilyUnlocked(foreground)) {
+                val now = System.currentTimeMillis()
+                if (foreground == lastLockPromptPackage && now - lastLockPromptTimeMs < 2000L) {
+                    return
+                }
                 lastForegroundPackage = foreground
+                lastLockPromptPackage = foreground
+                lastLockPromptTimeMs = now
                 val intent = Intent(context, AppLockActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     putExtra(AppLockActivity.EXTRA_PACKAGE_NAME, foreground)
                 }
-                context.startActivity(intent)
+                try {
+                    context.startActivity(intent)
+                } catch (_: Exception) {
+                    // May fail silently if overlay/background activity start is restricted
+                }
             }
         } else {
             lastForegroundPackage = foreground

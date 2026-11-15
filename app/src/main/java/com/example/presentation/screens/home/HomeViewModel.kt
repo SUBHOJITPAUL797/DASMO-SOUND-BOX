@@ -1,12 +1,13 @@
 package com.example.presentation.screens.home
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.database.entity.TransactionEntity
 import com.example.di.AppModule
 import com.example.domain.model.AnnouncementStatus
 import com.example.domain.model.AppSettings
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.example.service.SoundBoxForegroundService
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -72,8 +73,16 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    fun simulateTestPayment(amount: Double = 150.0, payerName: String? = "Rahul Sharma", appName: String = "Google Pay") {
+    fun simulateTestPayment(
+        amount: Double = 150.0,
+        payerName: String? = "Rahul Sharma",
+        appName: String = "Google Pay",
+        context: Context? = null
+    ) {
         viewModelScope.launch {
+            if (!settingsRepo.getLatestSettings().isEnabled) {
+                settingsRepo.updateIsEnabled(true)
+            }
             val event = com.example.domain.model.PaymentEvent(
                 amount = amount,
                 sourceType = com.example.domain.model.SourceType.NOTIFICATION,
@@ -83,7 +92,12 @@ class HomeViewModel : ViewModel() {
                 refId = "4287" + (10000000..99999999).random().toString(),
                 rawText = "Received ₹$amount from $payerName via $appName"
             )
-            AppModule.paymentEventBus?.emit(event)
+            val hasSubscriber = (AppModule.paymentEventBus?.events?.subscriptionCount?.value ?: 0) > 0
+            if (context != null && (!SoundBoxForegroundService.isRunning || !hasSubscriber)) {
+                SoundBoxForegroundService.start(context, event)
+            } else {
+                AppModule.paymentEventBus?.emit(event)
+            }
         }
     }
 }

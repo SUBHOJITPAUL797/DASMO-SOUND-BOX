@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,11 +28,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import androidx.core.view.WindowCompat
 import com.example.di.AppModule
 import com.example.presentation.components.PatternLockView
 import com.example.presentation.components.PatternState
@@ -72,13 +75,34 @@ class AppLockActivity : ComponentActivity() {
                     addCategory(Intent.CATEGORY_HOME)
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
-                startActivity(homeIntent)
+                try {
+                    startActivity(homeIntent)
+                } catch (_: Exception) {}
                 finish()
             }
         })
 
         setContent {
-            MyApplicationTheme {
+            val themeSettings by (AppModule.settingsRepository?.getSettings()
+                ?: remember { kotlinx.coroutines.flow.emptyFlow<com.example.domain.model.AppSettings>() })
+                .collectAsState(initial = null)
+            val systemDark = isSystemInDarkTheme()
+            val useDarkTheme = when (themeSettings?.theme ?: "LIGHT") {
+                "DARK" -> true
+                "LIGHT" -> false
+                else -> systemDark
+            }
+            val view = LocalView.current
+            if (!view.isInEditMode) {
+                SideEffect {
+                    val window = this@AppLockActivity.window
+                    WindowCompat.getInsetsController(window, view).apply {
+                        isAppearanceLightStatusBars = !useDarkTheme
+                        isAppearanceLightNavigationBars = !useDarkTheme
+                    }
+                }
+            }
+            MyApplicationTheme(darkTheme = useDarkTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -118,10 +142,17 @@ fun AppLockScreen(
 
     LaunchedEffect(settings) {
         settings?.let {
-            currentLockType = if (it.appLockType == "PIN" || (it.appLockPattern.isBlank() && it.appLockPin.isNotBlank())) {
-                "PIN"
-            } else {
-                "PATTERN"
+            if (it.appLockPattern.isBlank() && it.appLockPin.isBlank()) {
+                // Fail open if credentials are empty so user is never permanently locked out
+                settingsRepo?.updateAppLockEnabled(false)
+                onUnlocked()
+                return@let
+            }
+            currentLockType = when {
+                it.appLockType == "PIN" && it.appLockPin.isNotBlank() -> "PIN"
+                it.appLockType == "PATTERN" && it.appLockPattern.isNotBlank() -> "PATTERN"
+                it.appLockPin.isNotBlank() -> "PIN"
+                else -> "PATTERN"
             }
         }
     }

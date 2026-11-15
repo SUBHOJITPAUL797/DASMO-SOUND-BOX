@@ -93,11 +93,12 @@ fun KioskScreen(
     val latestTx = uiState.recentTransactions.firstOrNull { it.status == "ANNOUNCED" }
 
     Scaffold(
-        containerColor = Color(0xFF0F172A), // Premium deep dark slate terminal background
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        containerColor = Color(0xFF06080C), // Obsidian dark terminal background
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF1E293B),
+                    containerColor = Color(0xFF10131A),
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White,
                     actionIconContentColor = Color.White
@@ -236,7 +237,7 @@ fun KioskScreen(
                         .fillMaxWidth()
                         .padding(vertical = 12.dp),
                     shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF10131A)),
                     elevation = CardDefaults.cardElevation(8.dp)
                 ) {
                     Column(
@@ -329,7 +330,7 @@ fun KioskScreen(
                 // Today's Collection Card
                 Card(
                     shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF10131A)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -378,8 +379,11 @@ fun KioskScreen(
                             if (latestTx != null && !isSpeaking) {
                                 scope.launch {
                                     isSpeaking = true
-                                    AnnouncementHelper.replayTransaction(context, latestTx)
-                                    isSpeaking = false
+                                    try {
+                                        AnnouncementHelper.replayTransaction(context, latestTx)
+                                    } finally {
+                                        isSpeaking = false
+                                    }
                                 }
                             }
                         },
@@ -407,12 +411,15 @@ fun KioskScreen(
                             if (!isSpeaking) {
                                 scope.launch {
                                     isSpeaking = true
-                                    AnnouncementHelper.announceDaySummary(
-                                        context,
-                                        uiState.todayTransactionCount,
-                                        uiState.todayTotalAmount
-                                    )
-                                    isSpeaking = false
+                                    try {
+                                        AnnouncementHelper.announceDaySummary(
+                                            context,
+                                            uiState.todayTransactionCount,
+                                            uiState.todayTotalAmount
+                                        )
+                                    } finally {
+                                        isSpeaking = false
+                                    }
                                 }
                             }
                         },

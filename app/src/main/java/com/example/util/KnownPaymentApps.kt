@@ -1,6 +1,71 @@
 package com.example.util
 
 object KnownPaymentApps {
+
+    /**
+     * Dedicated UPI & Merchant SoundBox payment apps where notifications with an amount
+     * (after debit, request, and promo/loan filtering) are high-confidence payment alerts.
+     * NOTE: Messaging apps (WhatsApp), loan apps (Navi/Bajaj), and lifestyle/credit-card apps (CRED/Amazon)
+     * are intentionally EXCLUDED from this set so they must match strict payment-receipt patterns.
+     */
+    val TRUSTED_UPI_ONLY_PACKAGES = setOf(
+        // Major Consumer & Merchant UPI Apps
+        "com.phonepe.app",
+        "com.phonepe.merchant.app",
+        "com.phonepe.app.business",
+        "com.google.android.apps.nbu.paisa.user",
+        "com.google.android.apps.nbu.paisa.merchant",
+        "net.one97.paytm",
+        "com.paytm.business",
+        "in.org.npci.upiapp",
+        "in.org.npci.bhim.aadhaarpay",
+        "in.bharatpe.merchant",
+        "in.bharatpe.app",
+        "com.super.money",
+        "com.super.merchant",
+        "com.airtel.bank.merchant",
+        "com.pinelabs.merchant",
+        "com.mswipe.merchant",
+        "com.razorpay.payments.app",
+        "com.cashfree.merchant",
+        "com.payu.india",
+        // Bank-Specific BHIM UPI Apps
+        "com.sbi.upi",
+        "com.bankofbaroda.upi",
+        "com.pnb.upi",
+        "com.boi.upi",
+        "com.unionbank.upi",
+        "com.canarabank.upi",
+        "com.centralbank.upi",
+        "com.indianbank.upi",
+        "com.iob.upi",
+        "com.uco.upi",
+        "com.psb.upi",
+        "com.idbi.upi",
+        "com.upi.axispay",
+        "com.rblbank.upi",
+        "com.syndicate.upi",
+        "com.corporationbank.upi",
+        "com.andhrabank.upi",
+        "com.allbank.upi"
+    )
+
+    /**
+     * Messaging / SMS apps that may carry legitimate payment receipts (e.g., WhatsApp Pay or RCS bank SMS),
+     * but ALSO carry normal chats and promotional loan/offer spam.
+     * Notifications from these packages are ONLY processed if they contain explicit payment-receipt
+     * phrasing and zero promo/loan indicators.
+     */
+    val MESSAGING_APP_PACKAGES = setOf(
+        "com.whatsapp",
+        "com.whatsapp.w4b",
+        "com.google.android.apps.messaging",
+        "com.android.mms",
+        "com.samsung.android.messaging",
+        "com.oneplus.mms",
+        "com.miui.mms"
+    )
+
     val packageNames = mapOf(
         // Major UPI Apps & Wallets
         "com.phonepe.app" to "PhonePe",
@@ -116,24 +181,46 @@ object KnownPaymentApps {
     )
 
     private val BANK_PACKAGE_KEYWORDS = listOf(
-        "bhim", "kotak", "bank", "pay", "upi", "npci", "financial", "mamp", "mobilebanking", "paisa",
-        "sbi", "hdfc", "icici", "axis", "pnb", "bob", "canara", "union", "boi", "indianbank",
-        "iob", "uco", "psb", "idfc", "indus", "yesbank", "rbl", "federal", "sib", "kvb",
-        "bandhan", "aubank", "equitas", "ujjivan", "jana", "suryoday", "ippb", "airtel",
-        "jio", "nsdl", "navi", "bajaj", "fintech", "finance", "banking", "mbanking", "wallet"
+        "bhim", "kotak", "bank", "upi", "npci", "mobilebanking", "mbanking",
+        "sbi", "hdfc", "icici", "axis", "pnb", "canara", "unionbank", "indianbank",
+        "idfc", "indusind", "yesbank", "rblbank", "federalbank", "aubank",
+        "equitas", "ujjivan", "suryoday", "ippb", "nsdl"
     )
 
-    private val PAYMENT_TEXT_KEYWORDS = listOf(
-        "received", "credited", "credit", "added", "deposited", "paid",
-        "₹", "rs.", "inr", "rupees", "upi", "a/c", "cr", "successful", "transferred",
-        "bhim", "प्राप्त", "मिले", "जमा", "भेजे"
+    private val EXCLUDED_SPAM_PACKAGE_KEYWORDS = listOf(
+        "browser", "chrome", "firefox", "opera", "instagram", "facebook",
+        "twitter", "youtube", "telegram", "snapchat", "zomato", "swiggy",
+        "flipkart", "myntra", "meesho", "dream11", "mpl", "rummy", "ludo",
+        "kreditbee", "mpokket", "cashe", "branch", "kissht", "fibe", "truebalance",
+        "stashfin", "smartcoin", "ring.app", "earlysalary", "paysense"
+    )
+
+    private val STRICT_CREDIT_GATE_REGEX = Regex(
+        """(?i)(?:\b(?:received|credited|sent\s+you|paid\s+you|paid\s+to\s+your|transferred\s+to\s+your|deposited\s+in\s+your|deposited\s+to\s+your|upi\/cr)\b|प्राप्त|मिले|भेजे)"""
     )
 
     fun shouldProcessNotification(packageName: String, text: String): Boolean {
-        if (packageNames.containsKey(packageName)) return true
         val pkgLower = packageName.lowercase()
-        if (BANK_PACKAGE_KEYWORDS.any { pkgLower.contains(it) }) return true
-        val textLower = text.lowercase()
-        return PAYMENT_TEXT_KEYWORDS.any { textLower.contains(it) }
+
+        // Never process known browsers, social apps, food delivery, gaming, or dedicated loan apps
+        if (EXCLUDED_SPAM_PACKAGE_KEYWORDS.any { pkgLower.contains(it) }) {
+            return false
+        }
+
+        // Messaging apps (WhatsApp, Google Messages, Samsung Messages) must pass strict credit gate
+        if (MESSAGING_APP_PACKAGES.contains(packageName)) {
+            return STRICT_CREDIT_GATE_REGEX.containsMatchIn(text)
+        }
+
+        if (TRUSTED_UPI_ONLY_PACKAGES.contains(packageName) || packageNames.containsKey(packageName)) {
+            return true
+        }
+
+        if (BANK_PACKAGE_KEYWORDS.any { pkgLower.contains(it) }) {
+            return true
+        }
+
+        // For any unrecognized package, require explicit credit-receipt phrasing (never bare "₹" or "cr")
+        return STRICT_CREDIT_GATE_REGEX.containsMatchIn(text)
     }
 }

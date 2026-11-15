@@ -92,6 +92,8 @@ class PaymentNotificationListener : NotificationListenerService() {
                 if (settings.disabledAppPackages.contains(packageName)) return@launch
                 
                 val notification = sbn.notification ?: return@launch
+                if ((notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return@launch
+                if ((notification.flags and Notification.FLAG_ONGOING_EVENT) != 0) return@launch
                 val extras = notification.extras ?: return@launch
 
                 val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
@@ -151,10 +153,25 @@ class PaymentNotificationListener : NotificationListenerService() {
                     }
                 }
 
-                // Gather any additional CharSequences in bundle keys
+                // Gather any additional user-visible CharSequences in bundle keys (skip internal system metadata)
+                val ignoredMetadataKeys = setOf(
+                    Notification.EXTRA_TITLE,
+                    Notification.EXTRA_TITLE_BIG,
+                    Notification.EXTRA_TEXT,
+                    Notification.EXTRA_BIG_TEXT,
+                    Notification.EXTRA_SUB_TEXT,
+                    Notification.EXTRA_SUMMARY_TEXT,
+                    Notification.EXTRA_INFO_TEXT,
+                    Notification.EXTRA_TEXT_LINES,
+                    Notification.EXTRA_TEMPLATE,
+                    "android.conversationTitle",
+                    "android.selfDisplayName",
+                    "android.people",
+                    "android.people.list"
+                )
                 val extraTokens = mutableListOf<String>()
                 for (key in extras.keySet()) {
-                    if (key.startsWith("android.messages")) continue
+                    if (key.startsWith("android.messages") || ignoredMetadataKeys.contains(key)) continue
                     when (val obj = extras.get(key)) {
                         is CharSequence -> {
                             val str = obj.toString().trim()
@@ -220,16 +237,17 @@ class PaymentNotificationListener : NotificationListenerService() {
                         rawText = fullText
                     )
 
-                    // Auto-start foreground service if enabled but not running, passing the event in intent
-                    if (!SoundBoxForegroundService.isRunning && settings.isEnabled) {
+                    // Auto-start foreground service if not running or collector isn't attached yet, passing event via Intent
+                    val hasSubscriber = (AppModule.paymentEventBus?.events?.subscriptionCount?.value ?: 0) > 0
+                    if ((!SoundBoxForegroundService.isRunning || !hasSubscriber) && settings.isEnabled) {
                         try {
                             SoundBoxForegroundService.start(applicationContext, event)
                         } catch (e: Throwable) {
                             Log.w(TAG, "Could not start service: ${e.message}")
                         }
+                    } else {
+                        AppModule.paymentEventBus?.emit(event)
                     }
-
-                    AppModule.paymentEventBus?.emit(event)
                 }
             } catch (e: Throwable) {
                 Log.e(TAG, "Error in onNotificationPosted: ${e.message}", e)

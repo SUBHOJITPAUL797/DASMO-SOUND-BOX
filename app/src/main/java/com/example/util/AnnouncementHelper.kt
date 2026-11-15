@@ -26,7 +26,7 @@ object AnnouncementHelper {
             FlashAlertManager.triggerFlash(context, 1)
         }
 
-        tts.acquireAudioSession(settings.announcementVolume)
+        val sessionToken = tts.acquireSessionToken(settings.announcementVolume)
         try {
             if (settings.chimeEnabled) {
                 ChimePlayer.play(context, settings.chimeSound, settings.announcementVolume)
@@ -41,7 +41,7 @@ object AnnouncementHelper {
                 manageSession = false
             )
         } finally {
-            tts.releaseAudioSession()
+            tts.releaseSessionToken(sessionToken)
         }
     }
 
@@ -52,7 +52,7 @@ object AnnouncementHelper {
 
         val summaryText = tts.buildDailySummaryText(count, totalAmount, settings.language)
 
-        tts.acquireAudioSession(settings.announcementVolume)
+        val sessionToken = tts.acquireSessionToken(settings.announcementVolume)
         try {
             if (settings.chimeEnabled) {
                 ChimePlayer.play(context, settings.chimeSound, settings.announcementVolume)
@@ -67,7 +67,7 @@ object AnnouncementHelper {
                 manageSession = false
             )
         } finally {
-            tts.releaseAudioSession()
+            tts.releaseSessionToken(sessionToken)
         }
     }
 }

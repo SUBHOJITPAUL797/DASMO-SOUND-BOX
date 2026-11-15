@@ -7,6 +7,7 @@ import com.example.di.AppModule
 import com.example.domain.model.AppSettings
 import com.example.util.TonePreset
 import com.example.util.VoiceOption
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
 class SettingsViewModel : ViewModel() {
     private val settingsRepo = AppModule.settingsRepository!!
@@ -27,6 +29,9 @@ class SettingsViewModel : ViewModel() {
 
     private val _isPlayingPreview = MutableStateFlow(false)
     val isPlayingPreview: StateFlow<Boolean> = _isPlayingPreview.asStateFlow()
+
+    private var previewJob: Job? = null
+    private val previewSeq = AtomicInteger(0)
 
     init {
         loadAvailableVoices()
@@ -130,7 +135,13 @@ class SettingsViewModel : ViewModel() {
         viewModelScope.launch { settingsRepo.updateSettings { it.copy(announcePayerName = enabled) } }
     }
 
+    fun updateTheme(theme: String) {
+        viewModelScope.launch { settingsRepo.updateSettings { it.copy(theme = theme) } }
+    }
+
     fun stopAudio() {
+        previewSeq.incrementAndGet()
+        previewJob?.cancel()
         _isPlayingPreview.value = false
         ttsEngine.stop()
     }
@@ -141,36 +152,40 @@ class SettingsViewModel : ViewModel() {
         pitch: Float? = null,
         voiceName: String? = null
     ) {
-        viewModelScope.launch {
+        previewJob?.cancel()
+        val seq = previewSeq.incrementAndGet()
+        previewJob = viewModelScope.launch {
             _isPlayingPreview.value = true
-            val settings = uiState.value
-            val currentRate = rate ?: settings.speechRate
-            val currentPitch = pitch ?: settings.voicePitch
-            val currentVoice = voiceName ?: settings.voiceName
+            try {
+                val settings = uiState.value
+                val currentRate = rate ?: settings.speechRate
+                val currentPitch = pitch ?: settings.voicePitch
+                val currentVoice = voiceName ?: settings.voiceName
 
-            ttsEngine.applyVoiceSettings(settings.language, currentRate, currentPitch, currentVoice)
+                ttsEngine.applyVoiceSettings(settings.language, currentRate, currentPitch, currentVoice)
 
-            val textToSpeak = customText?.takeIf { it.isNotBlank() } ?: ttsEngine.buildAnnouncementText(
-                amount = 100.0,
-                prefixEnabled = settings.customPrefixEnabled,
-                prefix = settings.customPrefix,
-                suffixEnabled = settings.customSuffixEnabled,
-                suffix = settings.customSuffix,
-                language = settings.language,
-                payerName = if (settings.announcePayerName) "Rahul Kumar" else null
-            )
+                val textToSpeak = customText?.takeIf { it.isNotBlank() } ?: ttsEngine.buildAnnouncementText(
+                    amount = 100.0,
+                    prefixEnabled = settings.customPrefixEnabled,
+                    prefix = settings.customPrefix,
+                    suffixEnabled = settings.customSuffixEnabled,
+                    suffix = settings.customSuffix,
+                    language = settings.language,
+                    payerName = if (settings.announcePayerName) "Rahul Kumar" else null
+                )
 
-            ttsEngine.announce(
-                text = textToSpeak,
-                volume = settings.announcementVolume,
-                rate = currentRate,
-                pitch = currentPitch,
-                voiceName = currentVoice
-            )
-            
-            // Auto reset wave after estimated speak duration
-            kotlinx.coroutines.delay(3200)
-            _isPlayingPreview.value = false
+                ttsEngine.announceSuspend(
+                    text = textToSpeak,
+                    volume = settings.announcementVolume,
+                    rate = currentRate,
+                    pitch = currentPitch,
+                    voiceName = currentVoice
+                )
+            } finally {
+                if (previewSeq.get() == seq) {
+                    _isPlayingPreview.value = false
+                }
+            }
         }
     }
 

@@ -37,6 +37,7 @@ fun ShopQrDialog(
     var shopName by remember { mutableStateOf(initialShopName.ifBlank { "Dasmo SoundBox Merchant" }) }
     var customAmount by remember { mutableStateOf("") }
     var isEditing by remember { mutableStateOf(initialUpiId.isBlank()) }
+    var upiError by remember { mutableStateOf<String?>(null) }
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     LaunchedEffect(upiId, shopName, customAmount) {
@@ -89,28 +90,40 @@ fun ShopQrDialog(
                         value = shopName,
                         onValueChange = { shopName = it },
                         label = { Text("Shop / Business Name") },
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
                     OutlinedTextField(
                         value = upiId,
-                        onValueChange = { upiId = it },
+                        onValueChange = {
+                            upiId = it
+                            upiError = null
+                        },
                         label = { Text("UPI ID (e.g. mobile@upi, shop@okhdfc)") },
                         placeholder = { Text("example@okicici") },
+                        isError = upiError != null,
+                        supportingText = upiError?.let { err -> { Text(err) } },
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
                     Button(
                         onClick = {
-                            if (upiId.isNotBlank()) {
-                                onSaveUpiDetails(upiId, shopName)
-                                isEditing = false
+                            val trimmedUpi = upiId.trim()
+                            if (!trimmedUpi.contains("@") || trimmedUpi.length < 5) {
+                                upiError = "Enter a valid UPI ID (e.g. name@bank)"
+                                return@Button
                             }
+                            onSaveUpiDetails(trimmedUpi, shopName.trim())
+                            isEditing = false
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = upiId.isNotBlank()
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
                     ) {
-                        Text("Generate & Display QR")
+                        Text("Generate & Display QR", fontWeight = FontWeight.Bold)
                     }
                 } else {
                     // QR Display
@@ -170,8 +183,9 @@ fun ShopQrDialog(
                         onValueChange = { customAmount = it },
                         label = { Text("Custom Amount to Request (Optional ₹)") },
                         placeholder = { Text("Leave empty for any amount") },
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true
                     )
 
@@ -181,15 +195,21 @@ fun ShopQrDialog(
                     ) {
                         OutlinedButton(
                             onClick = { isEditing = true },
-                            modifier = Modifier.weight(1f)
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
                         ) {
                             Text("Edit UPI ID")
                         }
                         Button(
                             onClick = onDismiss,
-                            modifier = Modifier.weight(1f)
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
                         ) {
-                            Text("Done")
+                            Text("Done", fontWeight = FontWeight.Bold)
                         }
                     }
                 }

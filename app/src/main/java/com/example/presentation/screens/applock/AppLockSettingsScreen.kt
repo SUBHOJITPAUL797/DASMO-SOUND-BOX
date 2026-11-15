@@ -39,6 +39,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.di.AppModule
 import com.example.presentation.components.PatternLockView
 import com.example.presentation.components.PatternState
@@ -80,6 +83,19 @@ fun AppLockSettingsScreen(
     var hasUsageAccess by remember { mutableStateOf(AppLockManager.hasUsageAccessPermission(context)) }
     var hasOverlay by remember { mutableStateOf(AppLockManager.hasOverlayPermission(context)) }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasCameraPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                hasUsageAccess = AppLockManager.hasUsageAccessPermission(context)
+                hasOverlay = AppLockManager.hasOverlayPermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -88,6 +104,7 @@ fun AppLockSettingsScreen(
 
     var showPatternSetupDialog by remember { mutableStateOf(false) }
     var showPinSetupDialog by remember { mutableStateOf(false) }
+    var pendingEnableAfterSetup by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var installedApps by remember { mutableStateOf<List<InstalledAppItem>>(emptyList()) }
     var isLoadingApps by remember { mutableStateOf(true) }
@@ -95,21 +112,24 @@ fun AppLockSettingsScreen(
     // Load installed apps in background
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            val pm = context.packageManager
-            val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-            val list = packages.mapNotNull { appInfo ->
-                // Filter out non-launchable system apps
-                val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                val isPayment = KnownPaymentApps.packageNames.containsKey(appInfo.packageName)
-                if (isPayment || !isSystem || appInfo.packageName == context.packageName) {
-                    val name = pm.getApplicationLabel(appInfo).toString()
-                    InstalledAppItem(
-                        packageName = appInfo.packageName,
-                        appName = name,
-                        isPaymentApp = isPayment
-                    )
-                } else null
-            }.sortedWith(compareBy({ !it.isPaymentApp }, { it.appName.lowercase() }))
+            val list = try {
+                val pm = context.packageManager
+                val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                packages.mapNotNull { appInfo ->
+                    val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    val isPayment = KnownPaymentApps.packageNames.containsKey(appInfo.packageName)
+                    if (isPayment || !isSystem || appInfo.packageName == context.packageName) {
+                        val name = pm.getApplicationLabel(appInfo).toString()
+                        InstalledAppItem(
+                            packageName = appInfo.packageName,
+                            appName = name,
+                            isPaymentApp = isPayment
+                        )
+                    } else null
+                }.sortedWith(compareBy({ !it.isPaymentApp }, { it.appName.lowercase() }))
+            } catch (_: Exception) {
+                emptyList()
+            }
 
             withContext(Dispatchers.Main) {
                 installedApps = list
@@ -119,6 +139,7 @@ fun AppLockSettingsScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -187,13 +208,23 @@ fun AppLockSettingsScreen(
                             checked = settings?.appLockEnabled ?: false,
                             onCheckedChange = { enabled ->
                                 scope.launch {
-                                    settingsRepo?.updateAppLockEnabled(enabled)
-                                    if (enabled && settings?.appLockPattern.isNullOrBlank() && settings?.appLockPin.isNullOrBlank()) {
-                                        // Prompt to setup lock type
-                                        if (settings?.appLockType == "PIN") {
-                                            showPinSetupDialog = true
+                                    if (!enabled) {
+                                        pendingEnableAfterSetup = false
+                                        settingsRepo?.updateAppLockEnabled(false)
+                                    } else {
+                                        val hasCredentials = !settings?.appLockPattern.isNullOrBlank() ||
+                                            !settings?.appLockPin.isNullOrBlank()
+                                        if (hasCredentials) {
+                                            settingsRepo?.updateAppLockEnabled(true)
+                                            com.example.service.SoundBoxForegroundService.start(context)
                                         } else {
-                                            showPatternSetupDialog = true
+                                            // Defer enabling App Lock until the user finishes setting a PIN or Pattern
+                                            pendingEnableAfterSetup = true
+                                            if (settings?.appLockType == "PIN") {
+                                                showPinSetupDialog = true
+                                            } else {
+                                                showPatternSetupDialog = true
+                                            }
                                         }
                                     }
                                 }
@@ -436,8 +467,13 @@ fun AppLockSettingsScreen(
                             title = "Usage Access (Detect Locked Apps)",
                             isGranted = hasUsageAccess,
                             onGrant = {
-                                val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                                context.startActivity(intent)
+                                try {
+                                    context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                                } catch (_: Exception) {
+                                    try {
+                                        context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                                    } catch (_: Exception) {}
+                                }
                             }
                         )
 
@@ -446,11 +482,17 @@ fun AppLockSettingsScreen(
                             title = "Draw Over Other Apps (Lock Screen)",
                             isGranted = hasOverlay,
                             onGrant = {
-                                val intent = Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}")
-                                )
-                                context.startActivity(intent)
+                                try {
+                                    val intent = Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                    try {
+                                        context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                                    } catch (_: Exception) {}
+                                }
                             }
                         )
                     }
@@ -639,11 +681,19 @@ fun AppLockSettingsScreen(
         // Pattern Setup Dialog (Draw twice to confirm)
         if (showPatternSetupDialog) {
             PatternSetupDialog(
-                onDismiss = { showPatternSetupDialog = false },
+                onDismiss = {
+                    showPatternSetupDialog = false
+                    pendingEnableAfterSetup = false
+                },
                 onPatternConfirmed = { pattern ->
                     scope.launch {
                         settingsRepo?.updateAppLockPattern(pattern)
                         settingsRepo?.updateAppLockType("PATTERN")
+                        if (pendingEnableAfterSetup) {
+                            settingsRepo?.updateAppLockEnabled(true)
+                            com.example.service.SoundBoxForegroundService.start(context)
+                            pendingEnableAfterSetup = false
+                        }
                         showPatternSetupDialog = false
                     }
                 }
@@ -653,11 +703,19 @@ fun AppLockSettingsScreen(
         // PIN Setup Dialog (Enter twice to confirm)
         if (showPinSetupDialog) {
             PinSetupDialog(
-                onDismiss = { showPinSetupDialog = false },
+                onDismiss = {
+                    showPinSetupDialog = false
+                    pendingEnableAfterSetup = false
+                },
                 onPinConfirmed = { pin ->
                     scope.launch {
                         settingsRepo?.updateAppLockPin(pin)
                         settingsRepo?.updateAppLockType("PIN")
+                        if (pendingEnableAfterSetup) {
+                            settingsRepo?.updateAppLockEnabled(true)
+                            com.example.service.SoundBoxForegroundService.start(context)
+                            pendingEnableAfterSetup = false
+                        }
                         showPinSetupDialog = false
                     }
                 }

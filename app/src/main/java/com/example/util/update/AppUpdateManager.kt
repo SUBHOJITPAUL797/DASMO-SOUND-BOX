@@ -185,7 +185,8 @@ class AppUpdateManager {
             updatesDir.mkdirs()
         }
 
-        val apkFile = File(updatesDir, updateInfo.apkName)
+        val safeFileName = sanitizeApkFileName(updateInfo.apkName)
+        val apkFile = File(updatesDir, safeFileName)
 
         // If file already fully downloaded and size matches, re-use it
         if (apkFile.exists() && updateInfo.apkSizeBytes > 0 && apkFile.length() == updateInfo.apkSizeBytes) {
@@ -200,52 +201,72 @@ class AppUpdateManager {
             return@withContext apkFile
         }
 
+        val tempFile = File(updatesDir, "$safeFileName.tmp")
+        if (tempFile.exists()) {
+            tempFile.delete()
+        }
+
         val request = Request.Builder()
             .url(updateInfo.apkUrl)
             .addHeader("Accept", "application/octet-stream")
             .addHeader("User-Agent", "DasmoSoundBox-Android/${BuildConfig.VERSION_NAME}")
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Download failed with HTTP ${response.code}")
-            }
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("Download failed with HTTP ${response.code}")
+                }
 
-            val body = response.body ?: throw IOException("Empty response downloading APK")
-            val totalBytes = if (body.contentLength() > 0) body.contentLength() else updateInfo.apkSizeBytes
+                val body = response.body ?: throw IOException("Empty response downloading APK")
+                val totalBytes = if (body.contentLength() > 0) body.contentLength() else updateInfo.apkSizeBytes
 
-            body.byteStream().use { input ->
-                FileOutputStream(apkFile).use { output ->
-                    val buffer = ByteArray(8 * 1024)
-                    var bytesRead: Int
-                    var totalDownloaded = 0L
-                    var lastPercentReported = -1
+                body.byteStream().use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        val buffer = ByteArray(8 * 1024)
+                        var bytesRead: Int
+                        var totalDownloaded = 0L
+                        var lastPercentReported = -1
 
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        totalDownloaded += bytesRead
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            totalDownloaded += bytesRead
 
-                        val percent = if (totalBytes > 0) {
-                            ((totalDownloaded * 100) / totalBytes).toInt().coerceIn(0, 100)
-                        } else {
-                            0
-                        }
+                            val percent = if (totalBytes > 0) {
+                                ((totalDownloaded * 100) / totalBytes).toInt().coerceIn(0, 100)
+                            } else {
+                                0
+                            }
 
-                        if (percent != lastPercentReported) {
-                            lastPercentReported = percent
-                            onProgress(
-                                UpdateStatus.Downloading(
-                                    updateInfo = updateInfo,
-                                    progressPercent = percent,
-                                    bytesDownloaded = totalDownloaded,
-                                    totalBytes = totalBytes
+                            if (percent != lastPercentReported) {
+                                lastPercentReported = percent
+                                onProgress(
+                                    UpdateStatus.Downloading(
+                                        updateInfo = updateInfo,
+                                        progressPercent = percent,
+                                        bytesDownloaded = totalDownloaded,
+                                        totalBytes = totalBytes
+                                    )
                                 )
-                            )
+                            }
                         }
+                        output.flush()
                     }
-                    output.flush()
                 }
             }
+
+            if (apkFile.exists()) {
+                apkFile.delete()
+            }
+            if (!tempFile.renameTo(apkFile)) {
+                tempFile.copyTo(apkFile, overwrite = true)
+                tempFile.delete()
+            }
+        } catch (e: Exception) {
+            if (tempFile.exists()) {
+                tempFile.delete()
+            }
+            throw e
         }
 
         return@withContext apkFile
@@ -266,16 +287,22 @@ class AppUpdateManager {
                     data = Uri.parse("package:${context.packageName}")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                context.startActivity(settingsIntent)
+                try {
+                    context.startActivity(settingsIntent)
+                } catch (_: Exception) {}
                 return
             }
         }
 
-        val contentUri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            apkFile
-        )
+        val contentUri = try {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                apkFile
+            )
+        } catch (_: Exception) {
+            return
+        }
 
         val installIntent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(contentUri, "application/vnd.android.package-archive")
@@ -296,7 +323,11 @@ class AppUpdateManager {
             // Best effort URI permission grant
         }
 
-        context.startActivity(installIntent)
+        try {
+            context.startActivity(installIntent)
+        } catch (_: Exception) {
+            // Ignored if installer activity unavailable
+        }
     }
 
     /**
@@ -315,6 +346,15 @@ class AppUpdateManager {
     }
 
     // --- Helper Parsing Methods ---
+
+    internal fun sanitizeApkFileName(rawName: String): String {
+        val base = File(rawName).name.trim()
+            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+        if (base.isBlank() || base == "." || base == "..") {
+            return "dasmo-update.apk"
+        }
+        return if (base.endsWith(".apk", ignoreCase = true)) base else "$base.apk"
+    }
 
     internal fun cleanVersionTag(tag: String): String {
         return tag.trim().removePrefix("v").removePrefix("V")

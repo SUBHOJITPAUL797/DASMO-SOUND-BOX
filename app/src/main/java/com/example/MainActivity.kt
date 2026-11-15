@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.di.AppModule
 import com.example.presentation.navigation.AppNavGraph
@@ -35,31 +38,50 @@ class MainActivity : ComponentActivity() {
         val settingsRepo = AppModule.settingsRepository
         
         setContent {
-            MyApplicationTheme {
+            val settingsState = if (settingsRepo != null) {
+                settingsRepo.getSettings().collectAsState(initial = null)
+            } else {
+                androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(null) }
+            }
+            val currentSettings = settingsState.value
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val useDarkTheme = when (currentSettings?.theme ?: "LIGHT") {
+                "DARK" -> true
+                "LIGHT" -> false
+                else -> systemDark
+            }
+
+            val view = LocalView.current
+            if (!view.isInEditMode) {
+                SideEffect {
+                    val window = this@MainActivity.window
+                    WindowCompat.getInsetsController(window, view).apply {
+                        isAppearanceLightStatusBars = !useDarkTheme
+                        isAppearanceLightNavigationBars = !useDarkTheme
+                    }
+                }
+            }
+
+            MyApplicationTheme(darkTheme = useDarkTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    if (settingsRepo != null) {
-                        val settings by settingsRepo.getSettings().collectAsState(initial = null)
-                        val currentSettings = settings
-                        
-                        if (currentSettings != null) {
-                            LaunchedEffect(currentSettings.isEnabled) {
-                                if (currentSettings.isEnabled && !SoundBoxForegroundService.isRunning) {
+                    if (currentSettings != null) {
+                        LaunchedEffect(currentSettings.isEnabled, currentSettings.appLockEnabled) {
+                            if ((currentSettings.isEnabled || currentSettings.appLockEnabled) && !SoundBoxForegroundService.isRunning) {
+                                SoundBoxForegroundService.start(this@MainActivity)
+                            }
+                        }
+
+                        if (currentSettings.hasCompletedOnboarding) {
+                            AppNavGraph()
+                        } else {
+                            OnboardingScreen(
+                                onComplete = {
                                     SoundBoxForegroundService.start(this@MainActivity)
                                 }
-                            }
-
-                            if (currentSettings.hasCompletedOnboarding) {
-                                AppNavGraph()
-                            } else {
-                                OnboardingScreen(
-                                    onComplete = {
-                                        SoundBoxForegroundService.start(this@MainActivity)
-                                    }
-                                )
-                            }
+                            )
                         }
                     }
                 }
@@ -77,12 +99,16 @@ class MainActivity : ComponentActivity() {
         val settingsRepo = AppModule.settingsRepository ?: return
         lifecycleScope.launch {
             val settings = settingsRepo.getSettings().firstOrNull() ?: return@launch
-            if (settings.appLockEnabled && settings.lockedAppPackages.contains(packageName)) {
+            val hasCredentials = settings.appLockPattern.isNotBlank() || settings.appLockPin.isNotBlank()
+            if (settings.appLockEnabled && hasCredentials && settings.lockedAppPackages.contains(packageName)) {
                 if (!AppLockManager.isAppTemporarilyUnlocked(packageName)) {
-                    val intent = Intent(this@MainActivity, AppLockActivity::class.java).apply {
-                        putExtra(AppLockActivity.EXTRA_PACKAGE_NAME, packageName)
+                    try {
+                        val intent = Intent(this@MainActivity, AppLockActivity::class.java).apply {
+                            putExtra(AppLockActivity.EXTRA_PACKAGE_NAME, packageName)
+                        }
+                        startActivity(intent)
+                    } catch (_: Exception) {
                     }
-                    startActivity(intent)
                 }
             }
         }

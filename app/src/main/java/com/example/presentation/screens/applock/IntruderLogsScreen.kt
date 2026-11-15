@@ -60,6 +60,7 @@ fun IntruderLogsScreen(
     var selectedPhotoLog by remember { mutableStateOf<IntruderLogEntity?>(null) }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 navigationIcon = {
