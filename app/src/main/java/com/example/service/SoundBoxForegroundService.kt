@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.media.RingtoneManager
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
@@ -19,13 +18,12 @@ import com.example.MainActivity
 import com.example.R
 import com.example.di.AppModule
 import com.example.domain.model.AnnouncementStatus
+import com.example.domain.model.PaymentEvent
 import com.example.util.ChimePlayer
 import com.example.util.FlashAlertManager
-import com.example.domain.model.PaymentEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class SoundBoxForegroundService : LifecycleService() {
@@ -84,9 +82,15 @@ class SoundBoxForegroundService : LifecycleService() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 AppModule.getOrInit(applicationContext)
-                val settings = AppModule.settingsRepository?.getSettings()?.first()
+                ChimePlayer.init(applicationContext)
+                val settings = AppModule.settingsRepository?.getLatestSettings()
                 if (settings != null) {
-                    AppModule.ttsEngine?.setLanguage(settings.language)
+                    AppModule.ttsEngine?.applyVoiceSettings(
+                        language = settings.language,
+                        rate = settings.speechRate,
+                        pitch = settings.voicePitch,
+                        voiceName = settings.voiceName
+                    )
                 }
             } catch (e: Throwable) {
                 Log.e(TAG, "Error initializing settings in service onCreate: ${e.message}")
@@ -195,15 +199,15 @@ class SoundBoxForegroundService : LifecycleService() {
 
         try {
             AppModule.getOrInit(applicationContext)
-            val settings = AppModule.settingsRepository?.getSettings()?.first() ?: return
+            val settings = AppModule.settingsRepository?.getLatestSettings() ?: return
             if (!settings.isEnabled) return
 
             val dedupEngine = AppModule.dedupEngine ?: return
             val ttsEngine = AppModule.ttsEngine ?: return
             val saveTransaction = AppModule.saveTransactionUseCase ?: return
             
-            val dedupKey = dedupEngine.generateKey(event.amount)
-            val isDuplicate = dedupEngine.isDuplicate(event.amount)
+            val dedupKey = dedupEngine.generateKey(event.amount, event.payerName, event.refId)
+            val isDuplicate = dedupEngine.isDuplicate(event.amount, event.payerName, event.refId)
             
             val enrichedEvent = event.copy(dedupKey = dedupKey)
             
@@ -217,14 +221,6 @@ class SoundBoxForegroundService : LifecycleService() {
                 saveTransaction(enrichedEvent, AnnouncementStatus.DUPLICATE_SKIPPED, "Below threshold ₹${settings.minAmountThreshold}")
                 return
             }
-            
-            // Apply TTS voice tone, speed, pitch and voice name
-            ttsEngine.applyVoiceSettings(
-                language = settings.language,
-                rate = settings.speechRate,
-                pitch = settings.voicePitch,
-                voiceName = settings.voiceName
-            )
 
             val announcementText = ttsEngine.buildAnnouncementText(
                 amount = event.amount,
@@ -241,24 +237,30 @@ class SoundBoxForegroundService : LifecycleService() {
                 FlashAlertManager.triggerFlash(applicationContext, 2)
             }
 
-            if (settings.chimeEnabled) {
-                ChimePlayer.play(applicationContext, settings.chimeSound, settings.announcementVolume)
-                delay(300) // Allow chime audio to play clearly
-            }
+            // Coordinate AudioFocus and stream volume BEFORE chime playback
+            ttsEngine.acquireAudioSession(settings.announcementVolume)
+            try {
+                if (settings.chimeEnabled) {
+                    ChimePlayer.play(applicationContext, settings.chimeSound, settings.announcementVolume)
+                    // Zero delay(300) dead air! Chime transitions immediately to speech.
+                }
 
-            // Suspend until TTS announcement finishes completely (NO overlap)
-            ttsEngine.announceSuspend(
-                text = announcementText,
-                volume = settings.announcementVolume,
-                rate = settings.speechRate,
-                pitch = settings.voicePitch,
-                voiceName = settings.voiceName
-            )
+                // Suspend until TTS announcement finishes completely (NO overlap)
+                ttsEngine.announceSuspend(
+                    text = announcementText,
+                    volume = settings.announcementVolume,
+                    rate = settings.speechRate,
+                    pitch = settings.voicePitch,
+                    voiceName = settings.voiceName,
+                    manageSession = false
+                )
+            } finally {
+                ttsEngine.releaseAudioSession()
+            }
             
             saveTransaction(enrichedEvent, AnnouncementStatus.ANNOUNCED, announcementText)
             
-            // Small pause between consecutive payments
-            delay(300)
+            // Trailing delay(300) removed to eliminate queue stalling between consecutive payments!
         } finally {
             try {
                 if (wakeLock?.isHeld == true) {
@@ -309,6 +311,9 @@ class SoundBoxForegroundService : LifecycleService() {
         } catch (e: Throwable) {}
         try {
             AppModule.ttsEngine?.stop()
+        } catch (e: Throwable) {}
+        try {
+            ChimePlayer.release()
         } catch (e: Throwable) {}
         // Do NOT call AppModule.ttsEngine?.shutdown() on singleton!
     }

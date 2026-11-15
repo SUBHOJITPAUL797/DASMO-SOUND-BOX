@@ -21,3 +21,5 @@ debug.keystore
 my-upload-key.jks
 *.apk
 *.idsig
+.agents/
+

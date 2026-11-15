@@ -46,6 +46,16 @@ class AppLockActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_PACKAGE_NAME = "extra_package_name"
+
+        fun authenticatePattern(drawnPattern: String, savedPattern: String?): Boolean {
+            if (savedPattern.isNullOrBlank()) return false
+            return drawnPattern == savedPattern
+        }
+
+        fun authenticatePin(enteredPin: String, savedPin: String?): Boolean {
+            if (savedPin.isNullOrBlank()) return false
+            return enteredPin == savedPin
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,7 +118,11 @@ fun AppLockScreen(
 
     LaunchedEffect(settings) {
         settings?.let {
-            currentLockType = it.appLockType
+            currentLockType = if (it.appLockType == "PIN" || (it.appLockPattern.isBlank() && it.appLockPin.isNotBlank())) {
+                "PIN"
+            } else {
+                "PATTERN"
+            }
         }
     }
 
@@ -228,7 +242,7 @@ fun AppLockScreen(
                 PatternLockView(
                     size = 280.dp,
                     state = lockState,
-                    enabled = lockState != PatternState.SUCCESS,
+                    enabled = (settings != null) && lockState != PatternState.SUCCESS,
                     onPatternStarted = {
                         if (lockState == PatternState.ERROR) {
                             lockState = PatternState.NORMAL
@@ -236,8 +250,14 @@ fun AppLockScreen(
                         }
                     },
                     onPatternCompleted = { drawnPattern ->
-                        val savedPattern = settings?.appLockPattern
-                        if (savedPattern.isNullOrBlank() || drawnPattern == savedPattern) {
+                        val currentSettings = settings
+                        if (currentSettings == null) {
+                            isStatusError = true
+                            statusMessage = "Loading security settings, please wait..."
+                            return@PatternLockView
+                        }
+                        val savedPattern = currentSettings.appLockPattern
+                        if (AppLockActivity.authenticatePattern(drawnPattern, savedPattern)) {
                             handleSuccess()
                         } else {
                             handleWrongAttempt("PATTERN")
@@ -253,8 +273,14 @@ fun AppLockScreen(
                     pinLength = 4,
                     state = lockState,
                     onPinEntered = { enteredPin ->
-                        val savedPin = settings?.appLockPin
-                        if (savedPin.isNullOrBlank() || enteredPin == savedPin) {
+                        val currentSettings = settings
+                        if (currentSettings == null) {
+                            isStatusError = true
+                            statusMessage = "Loading security settings, please wait..."
+                            return@PinLockView
+                        }
+                        val savedPin = currentSettings.appLockPin
+                        if (AppLockActivity.authenticatePin(enteredPin, savedPin)) {
                             handleSuccess()
                         } else {
                             handleWrongAttempt("PIN")

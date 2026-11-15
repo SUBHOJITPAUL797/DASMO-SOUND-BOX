@@ -45,7 +45,9 @@ object AppModule {
             appContext,
             AppDatabase::class.java,
             "soundbox_db"
-        ).fallbackToDestructiveMigration(true).build()
+        )
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
+            .build()
         
         database = db
         val transRepo = TransactionRepositoryImpl(db.transactionDao())

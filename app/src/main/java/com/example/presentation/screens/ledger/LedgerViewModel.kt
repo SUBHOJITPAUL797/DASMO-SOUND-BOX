@@ -5,9 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.di.AppModule
 import com.example.data.database.entity.CustomerBorrowEntity
 import com.example.data.database.entity.WalletTransactionEntity
+import com.example.domain.model.AnnouncementStatus
+import com.example.domain.repository.CashbookRepository
+import com.example.domain.repository.TransactionRepository
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -20,22 +25,25 @@ data class LedgerUiState(
     val customerBorrows: List<CustomerBorrowEntity> = emptyList()
 )
 
-class LedgerViewModel : ViewModel() {
-    private val cashbookRepo = AppModule.cashbookRepository!!
-    private val transactionRepo = AppModule.transactionRepository!!
+class LedgerViewModel(
+    cashbookRepoParam: CashbookRepository? = null,
+    transactionRepoParam: TransactionRepository? = null
+) : ViewModel() {
+    private val cashbookRepo: CashbookRepository? = cashbookRepoParam ?: AppModule.cashbookRepository
+    private val transactionRepo: TransactionRepository? = transactionRepoParam ?: AppModule.transactionRepository
 
     private val flow1 = combine(
-        transactionRepo.getAllTransactions(),
-        cashbookRepo.getDrawerBalance(),
-        cashbookRepo.getHomeBalance()
+        transactionRepo?.getAllTransactions() ?: flowOf(emptyList()),
+        cashbookRepo?.getDrawerBalance() ?: flowOf(0.0),
+        cashbookRepo?.getHomeBalance() ?: flowOf(0.0)
     ) { onlineTxs, drawerBal, homeBal ->
         Triple(onlineTxs, drawerBal, homeBal)
     }
 
     private val flow2 = combine(
-        cashbookRepo.getTotalPendingBorrows(),
-        cashbookRepo.getWalletTransactions(),
-        cashbookRepo.getCustomerBorrows()
+        cashbookRepo?.getTotalPendingBorrows() ?: flowOf(0.0),
+        cashbookRepo?.getWalletTransactions() ?: flowOf(emptyList()),
+        cashbookRepo?.getCustomerBorrows() ?: flowOf(emptyList())
     ) { pendingBorrows, manualTxs, borrows ->
         Triple(pendingBorrows, manualTxs, borrows)
     }
@@ -49,8 +57,9 @@ class LedgerViewModel : ViewModel() {
         val manualTxs = f2.second
         val borrows = f2.third
 
+        // Exclude DUPLICATE_SKIPPED and PARSE_ERROR: only count verified ANNOUNCED payments
         val onlineTotal = onlineTxs
-            .filter { it.status == "ANNOUNCED" || it.status == "DUPLICATE_SKIPPED" }
+            .filter { it.status == AnnouncementStatus.ANNOUNCED.name }
             .sumOf { it.amount }
             
         LedgerUiState(
@@ -71,21 +80,19 @@ class LedgerViewModel : ViewModel() {
                 "EXPENSE" -> "EXPENSE"
                 else -> "TRANSFER"
             }
-            cashbookRepo.addWalletTransaction(wallet, amountValue, category, note)
+            cashbookRepo?.addWalletTransaction(wallet, amountValue, category, note)
         }
     }
 
     fun addCustomerBorrow(name: String, amount: Double, purpose: String, expectedReturnDate: Long) {
         viewModelScope.launch {
-            cashbookRepo.addWalletTransaction("DRAWER", -amount, "BORROW_GIVEN", "Given to $name")
-            cashbookRepo.addCustomerBorrow(name, amount, purpose, expectedReturnDate)
+            cashbookRepo?.addCustomerBorrow(name, amount, purpose, expectedReturnDate)
         }
     }
     
     fun markBorrowCleared(borrow: CustomerBorrowEntity) {
         viewModelScope.launch {
-            cashbookRepo.addWalletTransaction("DRAWER", borrow.amount, "BORROW_REPAID", "Repaid by ${borrow.customerName}")
-            cashbookRepo.markBorrowCleared(borrow)
+            cashbookRepo?.markBorrowCleared(borrow)
         }
     }
 }

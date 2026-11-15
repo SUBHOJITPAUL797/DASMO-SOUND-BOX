@@ -449,5 +449,45 @@ class ExampleUnitTest {
         assertFalse(result.isCredit)
         assertNull(result.amount)
     }
+
+    @Test
+    fun testChimeOptionsAndMuteKey() {
+        val options = com.example.util.ChimePlayer.CHIME_OPTIONS.toMap()
+        assertEquals(5, com.example.util.ChimePlayer.CHIME_OPTIONS.size)
+        assertTrue(options.containsKey("PAYTM_DING_DONG"))
+        assertTrue(options.containsKey("CASH_BELL"))
+        assertTrue(options.containsKey("SYNTH_UPBEAT"))
+        assertTrue(options.containsKey("SYSTEM_DEFAULT"))
+        assertTrue(options.containsKey("MUTE"))
+    }
+
+    @Test
+    fun testPrecompiledRegexBenchmarkJvm() {
+        val testNotifications = listOf(
+            "Received ₹500 from Rohit Sharma via PhonePe. UTR: 123456789012",
+            "Payment of Rs 1,200 received on Paytm QR from Suresh Patel",
+            "Dear SBI User, your A/c ending 4321 credited by Rs 2,500.00 by transfer from Rahul Verma Ref No 987654321012",
+            "Update! INR 800.00 credited to HDFC Bank A/c xx1234 from Amit Roy (UPI Ref No 123456789012)",
+            "रोहित शर्मा ने ₹ 500 भेजे",
+            "रोहित शर्मा से ₹ 500 प्राप्त हुए"
+        )
+
+        // JIT warm-up: execute 300 cycles (1,800 iterations) to ensure C2 JIT tiered compilation
+        for (w in 0 until 300) {
+            for (item in testNotifications) {
+                PaymentParser.parse(item)
+            }
+        }
+
+        val runs = 200
+        val startTime = System.nanoTime()
+        for (i in 0 until runs) {
+            PaymentParser.parse(testNotifications[i % testNotifications.size])
+        }
+        val durationMs = (System.nanoTime() - startTime) / 1_000_000.0
+        val avgMs = durationMs / runs
+
+        assertTrue("Pre-compiled static regex parsing must average < 2.0ms per call, was ${avgMs}ms", avgMs < 2.0)
+    }
 }
 

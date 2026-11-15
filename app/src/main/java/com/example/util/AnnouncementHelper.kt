@@ -3,22 +3,13 @@ package com.example.util
 import android.content.Context
 import com.example.data.database.entity.TransactionEntity
 import com.example.di.AppModule
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 
 object AnnouncementHelper {
 
     suspend fun replayTransaction(context: Context, transaction: TransactionEntity) {
         AppModule.getOrInit(context)
-        val settings = AppModule.settingsRepository?.getSettings()?.first() ?: return
+        val settings = AppModule.settingsRepository?.getLatestSettings() ?: return
         val tts = AppModule.ttsEngine ?: return
-
-        tts.applyVoiceSettings(
-            language = settings.language,
-            rate = settings.speechRate,
-            pitch = settings.voicePitch,
-            voiceName = settings.voiceName
-        )
 
         val announcementText = transaction.announcementText ?: tts.buildAnnouncementText(
             amount = transaction.amount,
@@ -34,45 +25,49 @@ object AnnouncementHelper {
         if (settings.flashAlertEnabled) {
             FlashAlertManager.triggerFlash(context, 1)
         }
-        if (settings.chimeEnabled) {
-            ChimePlayer.play(context, settings.chimeSound, settings.announcementVolume)
-            delay(250)
-        }
 
-        tts.announceSuspend(
-            text = announcementText,
-            volume = settings.announcementVolume,
-            rate = settings.speechRate,
-            pitch = settings.voicePitch,
-            voiceName = settings.voiceName
-        )
+        tts.acquireAudioSession(settings.announcementVolume)
+        try {
+            if (settings.chimeEnabled) {
+                ChimePlayer.play(context, settings.chimeSound, settings.announcementVolume)
+            }
+
+            tts.announceSuspend(
+                text = announcementText,
+                volume = settings.announcementVolume,
+                rate = settings.speechRate,
+                pitch = settings.voicePitch,
+                voiceName = settings.voiceName,
+                manageSession = false
+            )
+        } finally {
+            tts.releaseAudioSession()
+        }
     }
 
     suspend fun announceDaySummary(context: Context, count: Int, totalAmount: Double) {
         AppModule.getOrInit(context)
-        val settings = AppModule.settingsRepository?.getSettings()?.first() ?: return
+        val settings = AppModule.settingsRepository?.getLatestSettings() ?: return
         val tts = AppModule.ttsEngine ?: return
-
-        tts.applyVoiceSettings(
-            language = settings.language,
-            rate = settings.speechRate,
-            pitch = settings.voicePitch,
-            voiceName = settings.voiceName
-        )
 
         val summaryText = tts.buildDailySummaryText(count, totalAmount, settings.language)
 
-        if (settings.chimeEnabled) {
-            ChimePlayer.play(context, settings.chimeSound, settings.announcementVolume)
-            delay(250)
-        }
+        tts.acquireAudioSession(settings.announcementVolume)
+        try {
+            if (settings.chimeEnabled) {
+                ChimePlayer.play(context, settings.chimeSound, settings.announcementVolume)
+            }
 
-        tts.announceSuspend(
-            text = summaryText,
-            volume = settings.announcementVolume,
-            rate = settings.speechRate,
-            pitch = settings.voicePitch,
-            voiceName = settings.voiceName
-        )
+            tts.announceSuspend(
+                text = summaryText,
+                volume = settings.announcementVolume,
+                rate = settings.speechRate,
+                pitch = settings.voicePitch,
+                voiceName = settings.voiceName,
+                manageSession = false
+            )
+        } finally {
+            tts.releaseAudioSession()
+        }
     }
 }

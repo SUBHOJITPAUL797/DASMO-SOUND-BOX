@@ -1,5 +1,6 @@
 package com.example
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,17 +13,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
 import com.example.di.AppModule
 import com.example.presentation.navigation.AppNavGraph
+import com.example.presentation.screens.applock.AppLockActivity
 import com.example.presentation.screens.onboarding.OnboardingScreen
 import com.example.service.SoundBoxForegroundService
 import com.example.ui.theme.MyApplicationTheme
-
-import android.content.Intent
-import com.example.presentation.screens.applock.AppLockActivity
 import com.example.util.AppLockManager
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 
@@ -34,7 +32,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         
         AppModule.getOrInit(this)
-        val settingsRepo = AppModule.settingsRepository!!
+        val settingsRepo = AppModule.settingsRepository
         
         setContent {
             MyApplicationTheme {
@@ -42,23 +40,26 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    val settings by settingsRepo.getSettings().collectAsState(initial = null)
-                    
-                    if (settings != null) {
-                        LaunchedEffect(settings!!.isEnabled) {
-                            if (settings!!.isEnabled && !SoundBoxForegroundService.isRunning) {
-                                SoundBoxForegroundService.start(this@MainActivity)
-                            }
-                        }
-
-                        if (settings!!.hasCompletedOnboarding) {
-                            AppNavGraph()
-                        } else {
-                            OnboardingScreen(
-                                onComplete = {
+                    if (settingsRepo != null) {
+                        val settings by settingsRepo.getSettings().collectAsState(initial = null)
+                        val currentSettings = settings
+                        
+                        if (currentSettings != null) {
+                            LaunchedEffect(currentSettings.isEnabled) {
+                                if (currentSettings.isEnabled && !SoundBoxForegroundService.isRunning) {
                                     SoundBoxForegroundService.start(this@MainActivity)
                                 }
-                            )
+                            }
+
+                            if (currentSettings.hasCompletedOnboarding) {
+                                AppNavGraph()
+                            } else {
+                                OnboardingScreen(
+                                    onComplete = {
+                                        SoundBoxForegroundService.start(this@MainActivity)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -74,7 +75,7 @@ class MainActivity : ComponentActivity() {
 
     private fun checkAppLock() {
         val settingsRepo = AppModule.settingsRepository ?: return
-        CoroutineScope(Dispatchers.Main).launch {
+        lifecycleScope.launch {
             val settings = settingsRepo.getSettings().firstOrNull() ?: return@launch
             if (settings.appLockEnabled && settings.lockedAppPackages.contains(packageName)) {
                 if (!AppLockManager.isAppTemporarilyUnlocked(packageName)) {

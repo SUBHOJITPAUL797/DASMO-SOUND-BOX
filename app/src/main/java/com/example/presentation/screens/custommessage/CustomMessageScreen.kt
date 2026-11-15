@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,6 +36,22 @@ fun CustomMessageScreen(
         if (!isSuffixLoaded) {
             suffixText = settings.customSuffix
             isSuffixLoaded = true
+        }
+    }
+
+    // Debounced keystroke persistence for prefix (400ms delay to prevent disk I/O thrashing)
+    LaunchedEffect(prefixText) {
+        if (isPrefixLoaded && prefixText != settings.customPrefix) {
+            delay(400L)
+            viewModel.updatePrefix(settings.customPrefixEnabled, prefixText)
+        }
+    }
+
+    // Debounced keystroke persistence for suffix (400ms delay to prevent disk I/O thrashing)
+    LaunchedEffect(suffixText) {
+        if (isSuffixLoaded && suffixText != settings.customSuffix) {
+            delay(400L)
+            viewModel.updateSuffix(settings.customSuffixEnabled, suffixText)
         }
     }
 
@@ -68,7 +85,6 @@ fun CustomMessageScreen(
                     value = prefixText,
                     onValueChange = { newText ->
                         prefixText = newText
-                        viewModel.updatePrefix(true, newText)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Prefix Text") }
@@ -93,7 +109,6 @@ fun CustomMessageScreen(
                     value = suffixText,
                     onValueChange = { newText ->
                         suffixText = newText
-                        viewModel.updateSuffix(true, newText)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Suffix Text") }

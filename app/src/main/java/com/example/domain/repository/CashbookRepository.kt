@@ -30,17 +30,32 @@ class CashbookRepository(private val cashbookDao: CashbookDao) {
     fun getTotalPendingBorrows(): Flow<Double> = cashbookDao.getTotalPendingBorrows().map { it ?: 0.0 }
     
     suspend fun addCustomerBorrow(name: String, amount: Double, purpose: String, expectedReturnDate: Long) {
-        val entity = CustomerBorrowEntity(
+        val now = System.currentTimeMillis()
+        val walletTx = WalletTransactionEntity(
+            walletType = "DRAWER",
+            amount = -amount,
+            category = "BORROW_GIVEN",
+            note = "Given to $name",
+            timestamp = now
+        )
+        val borrow = CustomerBorrowEntity(
             customerName = name,
             amount = amount,
             purpose = purpose,
             expectedReturnDate = expectedReturnDate,
-            timestamp = System.currentTimeMillis()
+            timestamp = now
         )
-        cashbookDao.insertCustomerBorrow(entity)
+        cashbookDao.recordCustomerBorrow(walletTx, borrow)
     }
     
     suspend fun markBorrowCleared(borrow: CustomerBorrowEntity) {
-        cashbookDao.updateCustomerBorrow(borrow.copy(isCleared = true))
+        val walletTx = WalletTransactionEntity(
+            walletType = "DRAWER",
+            amount = borrow.amount,
+            category = "BORROW_REPAID",
+            note = "Repaid by ${borrow.customerName}",
+            timestamp = System.currentTimeMillis()
+        )
+        cashbookDao.recordBorrowCleared(walletTx, borrow.copy(isCleared = true))
     }
 }

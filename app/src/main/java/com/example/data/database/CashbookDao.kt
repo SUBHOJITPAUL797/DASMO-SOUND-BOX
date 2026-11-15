@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.example.data.database.entity.CustomerBorrowEntity
 import com.example.data.database.entity.WalletTransactionEntity
@@ -31,4 +32,22 @@ interface CashbookDao {
     
     @Query("SELECT SUM(amount) FROM customer_borrows WHERE isCleared = 0")
     fun getTotalPendingBorrows(): Flow<Double?>
+
+    @Transaction
+    suspend fun recordCustomerBorrow(
+        walletTransaction: WalletTransactionEntity,
+        borrow: CustomerBorrowEntity
+    ) {
+        insertWalletTransaction(walletTransaction)
+        insertCustomerBorrow(borrow)
+    }
+
+    @Transaction
+    suspend fun recordBorrowCleared(
+        walletTransaction: WalletTransactionEntity,
+        borrow: CustomerBorrowEntity
+    ) {
+        insertWalletTransaction(walletTransaction)
+        updateCustomerBorrow(borrow)
+    }
 }

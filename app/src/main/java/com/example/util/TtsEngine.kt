@@ -16,6 +16,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 data class VoiceOption(
     val name: String,
@@ -36,10 +38,20 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
     @Volatile private var isInitialized = false
+    private val initLock = Any()
+    private val initDeferredRef = AtomicReference<CompletableDeferred<Boolean>>(CompletableDeferred())
+
     private val audioManager = context.getSystemService(AudioManager::class.java)
-    private var previousVolume: Int = -1
+    private val sessionLock = Any()
+    private val activeSessions = AtomicInteger(0)
+    @Volatile private var originalStreamVolume: Int = -1
     private var pendingLanguage: Locale? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+
+    @Volatile private var cachedLanguageTag: String? = null
+    @Volatile private var cachedRate: Float? = null
+    @Volatile private var cachedPitch: Float? = null
+    @Volatile private var cachedVoiceName: String? = null
 
     init {
         ensureInitialized()
@@ -56,28 +68,80 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         )
     }
 
-    @Synchronized
     fun ensureInitialized() {
-        if (tts == null) {
+        synchronized(initLock) {
+            if (tts == null) {
+                val currentDeferred = initDeferredRef.get()
+                if (currentDeferred.isCompleted) {
+                    initDeferredRef.set(CompletableDeferred())
+                }
+                try {
+                    tts = TextToSpeech(context.applicationContext, this)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error initializing TextToSpeech: ${e.message}")
+                    isInitialized = false
+                    initDeferredRef.get().complete(false)
+                }
+            }
+        }
+    }
+
+    fun reinitialize() {
+        synchronized(initLock) {
             try {
-                tts = TextToSpeech(context.applicationContext, this)
+                isInitialized = false
+                tts?.shutdown()
             } catch (e: Exception) {
-                Log.e(TAG, "Error initializing TextToSpeech: ${e.message}")
+                Log.w(TAG, "Error shutting down previous TTS: ${e.message}")
+            } finally {
+                tts = null
+                clearCachedSettings()
+                initDeferredRef.set(CompletableDeferred())
+                ensureInitialized()
             }
         }
     }
 
     override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            isInitialized = true
-            try {
-                pendingLanguage?.let { setLanguage(it) } ?: run { setLanguage("en-IN") }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error setting language onInit: ${e.message}")
+        synchronized(initLock) {
+            if (status == TextToSpeech.SUCCESS) {
+                isInitialized = true
+                try {
+                    pendingLanguage?.let { setLanguage(it) } ?: run { setLanguage("en-IN") }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error setting language onInit: ${e.message}")
+                }
+                initDeferredRef.get().complete(true)
+            } else {
+                isInitialized = false
+                Log.e(TAG, "TTS onInit failed with status: $status")
+                try {
+                    tts?.shutdown()
+                } catch (e: Exception) {
+                    // Ignore cleanup error on failed init
+                }
+                tts = null
+                initDeferredRef.get().complete(false)
             }
-        } else {
-            isInitialized = false
-            Log.e(TAG, "TTS onInit failed with status: $status")
+        }
+    }
+
+    suspend fun awaitInitialization(timeoutMs: Long = 3000L): Boolean {
+        ensureInitialized()
+        if (isInitialized) return true
+        val deferred = initDeferredRef.get()
+        return withTimeoutOrNull(timeoutMs) {
+            deferred.await()
+        } ?: isInitialized
+    }
+
+    fun preWarm(language: String? = null, rate: Float? = null, pitch: Float? = null, voiceName: String? = null) {
+        ensureInitialized()
+        if (isInitialized) {
+            language?.let { setLanguage(it) }
+            rate?.let { setSpeechRate(it) }
+            pitch?.let { setPitch(it) }
+            if (!voiceName.isNullOrBlank()) setVoiceByName(voiceName)
         }
     }
 
@@ -87,6 +151,11 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
     }
 
     fun setLanguage(locale: Locale): Boolean {
+        val targetTag = locale.toLanguageTag()
+        if (cachedLanguageTag == targetTag && isInitialized) {
+            return true
+        }
+
         pendingLanguage = locale
         ensureInitialized()
         if (!isInitialized) return false
@@ -95,16 +164,19 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
             val t = tts ?: return false
             val res1 = t.setLanguage(locale)
             if (res1 >= TextToSpeech.LANG_AVAILABLE) {
+                cachedLanguageTag = targetTag
                 return true
             }
 
             val baseLocale = Locale.forLanguageTag(locale.language)
             val res2 = t.setLanguage(baseLocale)
             if (res2 >= TextToSpeech.LANG_AVAILABLE) {
+                cachedLanguageTag = baseLocale.toLanguageTag()
                 return true
             }
 
             t.setLanguage(Locale.forLanguageTag("en-IN"))
+            cachedLanguageTag = "en-IN"
             false
         } catch (e: Exception) {
             Log.w(TAG, "Failed setLanguage: ${e.message}")
@@ -113,10 +185,14 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
     }
 
     fun setSpeechRate(rate: Float) {
+        val coerced = rate.coerceIn(0.5f, 2.0f)
+        if (cachedRate == coerced && isInitialized) return
+
         ensureInitialized()
         if (isInitialized) {
             try {
-                tts?.setSpeechRate(rate.coerceIn(0.5f, 2.0f))
+                tts?.setSpeechRate(coerced)
+                cachedRate = coerced
             } catch (e: Exception) {
                 Log.w(TAG, "Failed setSpeechRate: ${e.message}")
             }
@@ -124,10 +200,14 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
     }
 
     fun setPitch(pitch: Float) {
+        val coerced = pitch.coerceIn(0.5f, 2.0f)
+        if (cachedPitch == coerced && isInitialized) return
+
         ensureInitialized()
         if (isInitialized) {
             try {
-                tts?.setPitch(pitch.coerceIn(0.5f, 2.0f))
+                tts?.setPitch(coerced)
+                cachedPitch = coerced
             } catch (e: Exception) {
                 Log.w(TAG, "Failed setPitch: ${e.message}")
             }
@@ -135,13 +215,17 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
     }
 
     fun setVoiceByName(voiceName: String): Boolean {
+        if (voiceName.isBlank()) return false
+        if (cachedVoiceName == voiceName && isInitialized) return true
+
         ensureInitialized()
-        if (!isInitialized || voiceName.isBlank()) return false
+        if (!isInitialized) return false
         return try {
             val voices = tts?.voices ?: return false
             val matchedVoice = voices.find { it.name.equals(voiceName, ignoreCase = true) }
             if (matchedVoice != null) {
                 tts?.voice = matchedVoice
+                cachedVoiceName = voiceName
                 true
             } else {
                 false
@@ -286,6 +370,11 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
                         .build()
                     val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                         .setAudioAttributes(attrs)
+                        .setOnAudioFocusChangeListener { focusChange ->
+                            if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
+                                stop()
+                            }
+                        }
                         .build()
                     audioFocusRequest = req
                     am.requestAudioFocus(req)
@@ -304,6 +393,7 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
             audioManager?.let { am ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
+                    audioFocusRequest = null
                 } else {
                     @Suppress("DEPRECATION")
                     am.abandonAudioFocus(null)
@@ -314,27 +404,49 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         }
     }
 
+    fun acquireAudioSession(volumePercent: Int) {
+        synchronized(sessionLock) {
+            val count = activeSessions.getAndIncrement()
+            if (count == 0) {
+                requestAudioFocus()
+                setVolumeMaxLocked(volumePercent)
+            } else {
+                updateVolumeIfHigherLocked(volumePercent)
+            }
+        }
+    }
+
+    fun releaseAudioSession() {
+        synchronized(sessionLock) {
+            val remaining = activeSessions.decrementAndGet()
+            if (remaining <= 0) {
+                activeSessions.set(0)
+                restoreVolumeLocked()
+                releaseAudioFocus()
+            }
+        }
+    }
+
     suspend fun announceSuspend(
         text: String,
         volume: Int,
         rate: Float? = null,
         pitch: Float? = null,
-        voiceName: String? = null
+        voiceName: String? = null,
+        manageSession: Boolean = true
     ) {
         ensureInitialized()
         if (!isInitialized) {
-            var count = 0
-            while (!isInitialized && count < 25) {
-                kotlinx.coroutines.delay(100)
-                count++
-            }
+            awaitInitialization(3000L)
         }
         if (!isInitialized) {
             Log.e(TAG, "Cannot announce: TTS failed to initialize")
             return
         }
 
-        requestAudioFocus()
+        if (manageSession) {
+            acquireAudioSession(volume)
+        }
         try {
             rate?.let { setSpeechRate(it) }
             pitch?.let { setPitch(it) }
@@ -342,8 +454,6 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
 
             val utteranceId = UUID.randomUUID().toString()
             val completion = CompletableDeferred<Unit>()
-
-            setVolumeMax(volume)
 
             val currentTts = tts ?: return
             currentTts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -359,9 +469,26 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
             val speakResult = currentTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
             if (speakResult == TextToSpeech.ERROR) {
                 Log.e(TAG, "TTS speak returned ERROR code, retrying after reinit")
-                isInitialized = false
-                tts = null
-                ensureInitialized()
+                reinitialize()
+                val reinitSuccess = awaitInitialization(2000L)
+                if (reinitSuccess) {
+                    val retryTts = tts
+                    if (retryTts != null) {
+                        retryTts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                            override fun onStart(id: String?) {}
+                            override fun onDone(id: String?) {
+                                if (id == utteranceId) completion.complete(Unit)
+                            }
+                            override fun onError(id: String?) {
+                                if (id == utteranceId) completion.complete(Unit)
+                            }
+                        })
+                        val retryResult = retryTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+                        if (retryResult != TextToSpeech.ERROR) {
+                            withTimeoutOrNull(15000L) { completion.await() }
+                        }
+                    }
+                }
             } else {
                 withTimeoutOrNull(15000L) {
                     completion.await()
@@ -370,8 +497,9 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         } catch (e: Exception) {
             Log.e(TAG, "Exception during announceSuspend: ${e.message}", e)
         } finally {
-            restoreVolume()
-            releaseAudioFocus()
+            if (manageSession) {
+                releaseAudioSession()
+            }
         }
     }
 
@@ -385,15 +513,32 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         ensureInitialized()
         if (!isInitialized) return
         try {
-            requestAudioFocus()
+            acquireAudioSession(volume)
             rate?.let { setSpeechRate(it) }
             pitch?.let { setPitch(it) }
             voiceName?.let { setVoiceByName(it) }
 
-            setVolumeMax(volume)
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, UUID.randomUUID().toString())
+            val utteranceId = UUID.randomUUID().toString()
+            val currentTts = tts ?: run {
+                releaseAudioSession()
+                return
+            }
+            currentTts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(id: String?) {}
+                override fun onDone(id: String?) {
+                    if (id == utteranceId) releaseAudioSession()
+                }
+                override fun onError(id: String?) {
+                    if (id == utteranceId) releaseAudioSession()
+                }
+            })
+            val res = currentTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            if (res == TextToSpeech.ERROR) {
+                releaseAudioSession()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Exception in announce: ${e.message}")
+            releaseAudioSession()
         }
     }
 
@@ -403,17 +548,22 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         } catch (e: Exception) {
             Log.w(TAG, "Error stopping TTS: ${e.message}")
         } finally {
-            restoreVolume()
-            releaseAudioFocus()
+            synchronized(sessionLock) {
+                activeSessions.set(0)
+                restoreVolumeLocked()
+                releaseAudioFocus()
+            }
         }
     }
 
-    private fun setVolumeMax(volumePercent: Int) {
+    private fun setVolumeMaxLocked(volumePercent: Int) {
         try {
             audioManager?.let { am ->
                 val stream = AudioManager.STREAM_MUSIC
+                if (originalStreamVolume == -1) {
+                    originalStreamVolume = am.getStreamVolume(stream)
+                }
                 val maxVol = am.getStreamMaxVolume(stream)
-                previousVolume = am.getStreamVolume(stream)
                 val targetVol = (maxVol * volumePercent / 100.0).toInt().coerceIn(0, maxVol)
                 am.setStreamVolume(stream, targetVol, 0)
             }
@@ -422,12 +572,28 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         }
     }
 
-    private fun restoreVolume() {
+    private fun updateVolumeIfHigherLocked(volumePercent: Int) {
         try {
             audioManager?.let { am ->
-                if (previousVolume >= 0) {
-                    am.setStreamVolume(AudioManager.STREAM_MUSIC, previousVolume, 0)
-                    previousVolume = -1
+                val stream = AudioManager.STREAM_MUSIC
+                val maxVol = am.getStreamMaxVolume(stream)
+                val targetVol = (maxVol * volumePercent / 100.0).toInt().coerceIn(0, maxVol)
+                val currentVol = am.getStreamVolume(stream)
+                if (targetVol > currentVol) {
+                    am.setStreamVolume(stream, targetVol, 0)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not update volume for nested session: ${e.message}")
+        }
+    }
+
+    private fun restoreVolumeLocked() {
+        try {
+            audioManager?.let { am ->
+                if (originalStreamVolume >= 0) {
+                    am.setStreamVolume(AudioManager.STREAM_MUSIC, originalStreamVolume, 0)
+                    originalStreamVolume = -1
                 }
             }
         } catch (e: Exception) {
@@ -435,13 +601,28 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         }
     }
 
+    private fun clearCachedSettings() {
+        cachedLanguageTag = null
+        cachedRate = null
+        cachedPitch = null
+        cachedVoiceName = null
+    }
+
     fun shutdown() {
-        try {
-            isInitialized = false
-            tts?.shutdown()
-            tts = null
-        } catch (e: Exception) {
-            Log.w(TAG, "TTS shutdown error: ${e.message}")
+        stop()
+        synchronized(initLock) {
+            try {
+                isInitialized = false
+                tts?.shutdown()
+                tts = null
+                clearCachedSettings()
+                val current = initDeferredRef.get()
+                if (current.isCompleted) {
+                    initDeferredRef.set(CompletableDeferred())
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "TTS shutdown error: ${e.message}")
+            }
         }
     }
 }

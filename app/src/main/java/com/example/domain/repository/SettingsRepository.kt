@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface SettingsRepository {
     fun getSettings(): Flow<AppSettings>
+    fun getLatestSettings(): AppSettings
     suspend fun updateSettings(transform: suspend (AppSettings) -> AppSettings)
     suspend fun updateIsEnabled(enabled: Boolean)
     suspend fun updateHasCompletedOnboarding(completed: Boolean)
