@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.Pattern
 import androidx.compose.material.icons.filled.Pin
 import androidx.compose.material.icons.filled.Security
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.WindowCompat
 import com.example.di.AppModule
+import com.example.presentation.components.PasswordLockView
 import com.example.presentation.components.PatternLockView
 import com.example.presentation.components.PatternState
 import com.example.presentation.components.PinLockView
@@ -58,6 +60,11 @@ class AppLockActivity : ComponentActivity() {
         fun authenticatePin(enteredPin: String, savedPin: String?): Boolean {
             if (savedPin.isNullOrBlank()) return false
             return enteredPin == savedPin
+        }
+
+        fun authenticatePassword(enteredPassword: String, savedPassword: String?): Boolean {
+            if (savedPassword.isNullOrBlank()) return false
+            return enteredPassword == savedPassword
         }
     }
 
@@ -142,17 +149,20 @@ fun AppLockScreen(
 
     LaunchedEffect(settings) {
         settings?.let {
-            if (it.appLockPattern.isBlank() && it.appLockPin.isBlank()) {
+            if (it.appLockPattern.isBlank() && it.appLockPin.isBlank() && it.appLockPassword.isBlank()) {
                 // Fail open if credentials are empty so user is never permanently locked out
                 settingsRepo?.updateAppLockEnabled(false)
                 onUnlocked()
                 return@let
             }
             currentLockType = when {
+                it.appLockType == "PASSWORD" && it.appLockPassword.isNotBlank() -> "PASSWORD"
                 it.appLockType == "PIN" && it.appLockPin.isNotBlank() -> "PIN"
                 it.appLockType == "PATTERN" && it.appLockPattern.isNotBlank() -> "PATTERN"
+                it.appLockPattern.isNotBlank() -> "PATTERN"
                 it.appLockPin.isNotBlank() -> "PIN"
-                else -> "PATTERN"
+                it.appLockPassword.isNotBlank() -> "PASSWORD"
+                else -> it.appLockType.ifBlank { "PATTERN" }
             }
         }
     }
@@ -236,7 +246,11 @@ fun AppLockScreen(
             )
 
             Text(
-                text = if (currentLockType == "PATTERN") "Draw Pattern to Unlock" else "Enter PIN to Unlock",
+                text = when (currentLockType) {
+                    "PATTERN" -> "Draw Pattern to Unlock"
+                    "PIN" -> "Enter PIN to Unlock"
+                    else -> "Enter Password to Unlock"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -264,88 +278,135 @@ fun AppLockScreen(
             }
         }
 
-        // Lock Input Area (Pattern or PIN)
+        // Lock Input Area (Pattern, PIN, or Password)
         Box(
             modifier = Modifier.weight(1f, fill = false),
             contentAlignment = Alignment.Center
         ) {
-            if (currentLockType == "PATTERN") {
-                PatternLockView(
-                    size = 280.dp,
-                    state = lockState,
-                    enabled = (settings != null) && lockState != PatternState.SUCCESS,
-                    onPatternStarted = {
-                        if (lockState == PatternState.ERROR) {
-                            lockState = PatternState.NORMAL
-                            statusMessage = ""
-                        }
-                    },
-                    onPatternCompleted = { drawnPattern ->
-                        val currentSettings = settings
-                        if (currentSettings == null) {
+            when (currentLockType) {
+                "PATTERN" -> {
+                    PatternLockView(
+                        size = 280.dp,
+                        state = lockState,
+                        enabled = (settings != null) && lockState != PatternState.SUCCESS,
+                        onPatternStarted = {
+                            if (lockState == PatternState.ERROR) {
+                                lockState = PatternState.NORMAL
+                                statusMessage = ""
+                            }
+                        },
+                        onPatternCompleted = { drawnPattern ->
+                            val currentSettings = settings
+                            if (currentSettings == null) {
+                                isStatusError = true
+                                statusMessage = "Loading security settings, please wait..."
+                                return@PatternLockView
+                            }
+                            val savedPattern = currentSettings.appLockPattern
+                            if (AppLockActivity.authenticatePattern(drawnPattern, savedPattern)) {
+                                handleSuccess()
+                            } else {
+                                handleWrongAttempt("PATTERN")
+                            }
+                        },
+                        onPatternTooShort = {
+                            statusMessage = "Connect at least 4 dots"
                             isStatusError = true
-                            statusMessage = "Loading security settings, please wait..."
-                            return@PatternLockView
                         }
-                        val savedPattern = currentSettings.appLockPattern
-                        if (AppLockActivity.authenticatePattern(drawnPattern, savedPattern)) {
-                            handleSuccess()
-                        } else {
-                            handleWrongAttempt("PATTERN")
+                    )
+                }
+                "PIN" -> {
+                    PinLockView(
+                        pinLength = 4,
+                        state = lockState,
+                        onPinEntered = { enteredPin ->
+                            val currentSettings = settings
+                            if (currentSettings == null) {
+                                isStatusError = true
+                                statusMessage = "Loading security settings, please wait..."
+                                return@PinLockView
+                            }
+                            val savedPin = currentSettings.appLockPin
+                            if (AppLockActivity.authenticatePin(enteredPin, savedPin)) {
+                                handleSuccess()
+                            } else {
+                                handleWrongAttempt("PIN")
+                            }
                         }
-                    },
-                    onPatternTooShort = {
-                        statusMessage = "Connect at least 4 dots"
-                        isStatusError = true
-                    }
-                )
-            } else {
-                PinLockView(
-                    pinLength = 4,
-                    state = lockState,
-                    onPinEntered = { enteredPin ->
-                        val currentSettings = settings
-                        if (currentSettings == null) {
-                            isStatusError = true
-                            statusMessage = "Loading security settings, please wait..."
-                            return@PinLockView
+                    )
+                }
+                "PASSWORD" -> {
+                    PasswordLockView(
+                        state = lockState,
+                        enabled = (settings != null) && lockState != PatternState.SUCCESS,
+                        onPasswordEntered = { enteredPassword ->
+                            val currentSettings = settings
+                            if (currentSettings == null) {
+                                isStatusError = true
+                                statusMessage = "Loading security settings, please wait..."
+                                return@PasswordLockView
+                            }
+                            val savedPassword = currentSettings.appLockPassword
+                            if (AppLockActivity.authenticatePassword(enteredPassword, savedPassword)) {
+                                handleSuccess()
+                            } else {
+                                handleWrongAttempt("PASSWORD")
+                            }
                         }
-                        val savedPin = currentSettings.appLockPin
-                        if (AppLockActivity.authenticatePin(enteredPin, savedPin)) {
-                            handleSuccess()
-                        } else {
-                            handleWrongAttempt("PIN")
-                        }
-                    }
-                )
+                    )
+                }
             }
         }
 
-        // Bottom option to switch between Pattern and PIN
+        // Bottom option to switch between configured lock types
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val hasBothSet = !settings?.appLockPattern.isNullOrBlank() && !settings?.appLockPin.isNullOrBlank()
-            if (hasBothSet) {
-                TextButton(
-                    onClick = {
-                        currentLockType = if (currentLockType == "PATTERN") "PIN" else "PATTERN"
-                        lockState = PatternState.NORMAL
-                        statusMessage = ""
-                    }
+            val configuredTypes = remember(settings) {
+                val list = mutableListOf<String>()
+                if (!settings?.appLockPattern.isNullOrBlank()) list.add("PATTERN")
+                if (!settings?.appLockPin.isNullOrBlank()) list.add("PIN")
+                if (!settings?.appLockPassword.isNullOrBlank()) list.add("PASSWORD")
+                list
+            }
+
+            val otherTypes = configuredTypes.filter { it != currentLockType }
+
+            if (otherTypes.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = if (currentLockType == "PATTERN") Icons.Default.Pin else Icons.Default.Pattern,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = if (currentLockType == "PATTERN") "Use PIN instead" else "Use Pattern instead",
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    otherTypes.forEach { type ->
+                        TextButton(
+                            onClick = {
+                                currentLockType = type
+                                lockState = PatternState.NORMAL
+                                statusMessage = ""
+                            }
+                        ) {
+                            Icon(
+                                imageVector = when (type) {
+                                    "PATTERN" -> Icons.Default.Pattern
+                                    "PIN" -> Icons.Default.Pin
+                                    else -> Icons.Default.Password
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = when (type) {
+                                    "PATTERN" -> "Use Pattern"
+                                    "PIN" -> "Use PIN"
+                                    else -> "Use Password"
+                                },
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
             } else {
                 Row(

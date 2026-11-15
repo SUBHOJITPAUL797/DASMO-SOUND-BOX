@@ -71,6 +71,9 @@ class AppLockSecurityCoverageTest {
             override suspend fun updateAppLockPattern(pattern: String) {
                 settingsFlow.value = settingsFlow.value.copy(appLockPattern = pattern)
             }
+            override suspend fun updateAppLockPassword(password: String) {
+                settingsFlow.value = settingsFlow.value.copy(appLockPassword = password)
+            }
             override suspend fun updateLockedAppPackages(packages: Set<String>) {
                 settingsFlow.value = settingsFlow.value.copy(lockedAppPackages = packages)
             }
@@ -96,6 +99,15 @@ class AppLockSecurityCoverageTest {
         assertFalse("Null saved PIN must not authenticate", AppLockActivity.authenticatePin("1234", null))
         assertFalse("Blank saved PIN must not authenticate", AppLockActivity.authenticatePin("1234", ""))
         assertFalse("Whitespace saved PIN must not authenticate", AppLockActivity.authenticatePin("1234", "  "))
+    }
+
+    @Test
+    fun testAuthenticatePasswordProductionMethod() {
+        assertTrue("Matching password must authenticate", AppLockActivity.authenticatePassword("MyPass123", "MyPass123"))
+        assertFalse("Mismatched password must not authenticate", AppLockActivity.authenticatePassword("MyPass123", "WrongPass"))
+        assertFalse("Null saved password must not authenticate", AppLockActivity.authenticatePassword("MyPass123", null))
+        assertFalse("Blank saved password must not authenticate", AppLockActivity.authenticatePassword("MyPass123", ""))
+        assertFalse("Whitespace saved password must not authenticate", AppLockActivity.authenticatePassword("MyPass123", "   "))
     }
 
     @Test

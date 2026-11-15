@@ -46,6 +46,7 @@ import com.example.di.AppModule
 import com.example.presentation.components.PatternLockView
 import com.example.presentation.components.PatternState
 import com.example.presentation.components.PinLockView
+import com.example.presentation.components.PasswordLockView
 import com.example.util.AppLockManager
 import com.example.util.KnownPaymentApps
 import kotlinx.coroutines.Dispatchers
@@ -104,6 +105,7 @@ fun AppLockSettingsScreen(
 
     var showPatternSetupDialog by remember { mutableStateOf(false) }
     var showPinSetupDialog by remember { mutableStateOf(false) }
+    var showPasswordSetupDialog by remember { mutableStateOf(false) }
     var pendingEnableAfterSetup by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var installedApps by remember { mutableStateOf<List<InstalledAppItem>>(emptyList()) }
@@ -213,17 +215,19 @@ fun AppLockSettingsScreen(
                                         settingsRepo?.updateAppLockEnabled(false)
                                     } else {
                                         val hasCredentials = !settings?.appLockPattern.isNullOrBlank() ||
-                                            !settings?.appLockPin.isNullOrBlank()
+                                            !settings?.appLockPin.isNullOrBlank() ||
+                                            !settings?.appLockPassword.isNullOrBlank()
                                         if (hasCredentials) {
                                             settingsRepo?.updateAppLockEnabled(true)
                                             com.example.service.SoundBoxForegroundService.start(context)
                                         } else {
-                                            // Defer enabling App Lock until the user finishes setting a PIN or Pattern
+                                            // Defer enabling App Lock until user finishes setting their chosen lock type
                                             pendingEnableAfterSetup = true
-                                            if (settings?.appLockType == "PIN") {
-                                                showPinSetupDialog = true
-                                            } else {
-                                                showPatternSetupDialog = true
+                                            val currentType = settings?.appLockType ?: "PATTERN"
+                                            when (currentType) {
+                                                "PIN" -> showPinSetupDialog = true
+                                                "PASSWORD" -> showPasswordSetupDialog = true
+                                                else -> showPatternSetupDialog = true
                                             }
                                         }
                                     }
@@ -234,7 +238,7 @@ fun AppLockSettingsScreen(
                 }
             }
 
-            // Lock Type Selector (Pattern vs PIN)
+            // Lock Type Selector (Pattern vs PIN vs Password)
             item {
                 Text(
                     text = "🔐 LOCK METHOD",
@@ -256,12 +260,17 @@ fun AppLockSettingsScreen(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
+                        val currentType = settings?.appLockType ?: "PATTERN"
+                        val hasPattern = !settings?.appLockPattern.isNullOrBlank()
+                        val hasPin = !settings?.appLockPin.isNullOrBlank()
+                        val hasPassword = !settings?.appLockPassword.isNullOrBlank()
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             // Pattern Option Button
-                            val isPattern = (settings?.appLockType ?: "PATTERN") == "PATTERN"
+                            val isPattern = currentType == "PATTERN"
                             Button(
                                 onClick = {
                                     scope.launch {
@@ -270,17 +279,19 @@ fun AppLockSettingsScreen(
                                 },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (isPattern) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                     contentColor = if (isPattern) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             ) {
-                                Icon(Icons.Default.Pattern, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Pattern Lock", fontWeight = FontWeight.Bold)
+                                Icon(Icons.Default.Pattern, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Pattern", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
 
                             // PIN Option Button
+                            val isPin = currentType == "PIN"
                             Button(
                                 onClick = {
                                     scope.launch {
@@ -289,45 +300,131 @@ fun AppLockSettingsScreen(
                                 },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (!isPattern) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                    contentColor = if (!isPattern) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    containerColor = if (isPin) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = if (isPin) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             ) {
-                                Icon(Icons.Default.Pin, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("PIN Lock", fontWeight = FontWeight.Bold)
+                                Icon(Icons.Default.Pin, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("PIN", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+
+                            // Password Option Button
+                            val isPassword = currentType == "PASSWORD"
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        settingsRepo?.updateAppLockType("PASSWORD")
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isPassword) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = if (isPassword) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            ) {
+                                Icon(Icons.Default.Password, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Password", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
                         }
 
-                        // Configure/Change Pattern or PIN Button
-                        val isPattern = (settings?.appLockType ?: "PATTERN") == "PATTERN"
-                        val isConfigured = if (isPattern) {
-                            !settings?.appLockPattern.isNullOrBlank()
-                        } else {
-                            !settings?.appLockPin.isNullOrBlank()
+                        // Method status indicators
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            LockStatusChip("Pattern", hasPattern)
+                            Text("•", color = MaterialTheme.colorScheme.outline)
+                            LockStatusChip("PIN", hasPin)
+                            Text("•", color = MaterialTheme.colorScheme.outline)
+                            LockStatusChip("Password", hasPassword)
+                        }
+
+                        // Configure/Change Active Method Button
+                        val isConfigured = when (currentType) {
+                            "PIN" -> hasPin
+                            "PASSWORD" -> hasPassword
+                            else -> hasPattern
+                        }
+                        val typeName = when (currentType) {
+                            "PIN" -> "PIN"
+                            "PASSWORD" -> "Password"
+                            else -> "Pattern"
                         }
 
                         OutlinedButton(
                             onClick = {
-                                if (isPattern) {
-                                    showPatternSetupDialog = true
-                                } else {
-                                    showPinSetupDialog = true
+                                when (currentType) {
+                                    "PIN" -> showPinSetupDialog = true
+                                    "PASSWORD" -> showPasswordSetupDialog = true
+                                    else -> showPatternSetupDialog = true
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(
-                                if (isPattern) Icons.Default.Gesture else Icons.Default.Password,
+                                when (currentType) {
+                                    "PIN" -> Icons.Default.Pin
+                                    "PASSWORD" -> Icons.Default.Password
+                                    else -> Icons.Default.Gesture
+                                },
                                 contentDescription = null
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = if (isConfigured) "Change ${if (isPattern) "Pattern" else "PIN"}" else "Set ${if (isPattern) "Pattern" else "PIN"} Now",
+                                text = if (isConfigured) "Change $typeName" else "Set $typeName Now",
                                 fontWeight = FontWeight.Bold
                             )
+                        }
+
+                        // Option to configure any other method directly
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Setup other methods: ",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (currentType != "PATTERN") {
+                                TextButton(
+                                    onClick = { showPatternSetupDialog = true },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                ) {
+                                    Text("Pattern", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            if (currentType != "PIN") {
+                                TextButton(
+                                    onClick = { showPinSetupDialog = true },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                ) {
+                                    Text("PIN", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            if (currentType != "PASSWORD") {
+                                TextButton(
+                                    onClick = { showPasswordSetupDialog = true },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                ) {
+                                    Text("Password", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
                         }
                     }
                 }
@@ -721,6 +818,28 @@ fun AppLockSettingsScreen(
                 }
             )
         }
+
+        // Password Setup Dialog (Enter twice to confirm)
+        if (showPasswordSetupDialog) {
+            PasswordSetupDialog(
+                onDismiss = {
+                    showPasswordSetupDialog = false
+                    pendingEnableAfterSetup = false
+                },
+                onPasswordConfirmed = { password ->
+                    scope.launch {
+                        settingsRepo?.updateAppLockPassword(password)
+                        settingsRepo?.updateAppLockType("PASSWORD")
+                        if (pendingEnableAfterSetup) {
+                            settingsRepo?.updateAppLockEnabled(true)
+                            com.example.service.SoundBoxForegroundService.start(context)
+                            pendingEnableAfterSetup = false
+                        }
+                        showPasswordSetupDialog = false
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -916,6 +1035,126 @@ fun PinSetupDialog(
                             firstPin = ""
                             message = "Enter a 4-digit PIN"
                             pinState = PatternState.NORMAL
+                            isError = false
+                        }) {
+                            Text("Reset")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LockStatusChip(name: String, isConfigured: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Icon(
+            imageVector = if (isConfigured) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = if (isConfigured) Color(0xFF22C55E) else MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(13.dp)
+        )
+        Text(
+            text = "$name ${if (isConfigured) "set" else "not set"}",
+            fontSize = 11.sp,
+            fontWeight = if (isConfigured) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (isConfigured) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+fun PasswordSetupDialog(
+    onDismiss: () -> Unit,
+    onPasswordConfirmed: (String) -> Unit
+) {
+    var step by remember { mutableIntStateOf(1) } // 1 = Enter Password, 2 = Confirm Password
+    var firstPassword by remember { mutableStateOf("") }
+    var passwordState by remember { mutableStateOf(PatternState.NORMAL) }
+    var message by remember { mutableStateOf("Enter a password (at least 4 characters)") }
+    var isError by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = if (step == 1) "Set Unlock Password" else "Confirm Your Password",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = message,
+                    fontSize = 13.sp,
+                    color = if (isError) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+
+                PasswordLockView(
+                    state = passwordState,
+                    label = if (step == 1) "New Password" else "Confirm Password",
+                    placeholder = if (step == 1) "Enter password" else "Re-enter password",
+                    buttonText = if (step == 1) "Next" else "Confirm",
+                    onPasswordChanged = {
+                        if (isError) {
+                            isError = false
+                            passwordState = PatternState.NORMAL
+                            message = if (step == 1) "Enter a password (at least 4 characters)" else "Enter the password again to confirm"
+                        }
+                    },
+                    onPasswordEntered = { enteredPassword ->
+                        if (step == 1) {
+                            if (enteredPassword.length < 4) {
+                                passwordState = PatternState.ERROR
+                                isError = true
+                                message = "Password must be at least 4 characters"
+                            } else {
+                                firstPassword = enteredPassword
+                                step = 2
+                                message = "Enter the password again to confirm"
+                                passwordState = PatternState.NORMAL
+                                isError = false
+                            }
+                        } else {
+                            if (enteredPassword == firstPassword) {
+                                passwordState = PatternState.SUCCESS
+                                message = "Password confirmed!"
+                                onPasswordConfirmed(enteredPassword)
+                            } else {
+                                passwordState = PatternState.ERROR
+                                isError = true
+                                message = "Passwords do not match. Try again."
+                            }
+                        }
+                    }
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel")
+                    }
+                    if (step == 2) {
+                        TextButton(onClick = {
+                            step = 1
+                            firstPassword = ""
+                            message = "Enter a password (at least 4 characters)"
+                            passwordState = PatternState.NORMAL
                             isError = false
                         }) {
                             Text("Reset")

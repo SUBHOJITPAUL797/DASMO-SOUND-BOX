@@ -295,6 +295,10 @@ class MockPaymentInjectionHarness {
             _settings.update { it.copy(appLockPattern = pattern) }
         }
 
+        override suspend fun updateAppLockPassword(password: String) {
+            _settings.update { it.copy(appLockPassword = password) }
+        }
+
         override suspend fun updateLockedAppPackages(packages: Set<String>) {
             _settings.update { it.copy(lockedAppPackages = packages) }
         }

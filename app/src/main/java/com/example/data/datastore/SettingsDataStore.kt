@@ -49,6 +49,7 @@ object PreferencesKeys {
     val APP_LOCK_TYPE = stringPreferencesKey("app_lock_type")
     val APP_LOCK_PIN = stringPreferencesKey("app_lock_pin")
     val APP_LOCK_PATTERN = stringPreferencesKey("app_lock_pattern")
+    val APP_LOCK_PASSWORD = stringPreferencesKey("app_lock_password")
     val LOCKED_APP_PACKAGES = stringSetPreferencesKey("locked_app_packages")
     val INTRUDER_SELFIE_ENABLED = booleanPreferencesKey("intruder_selfie_enabled")
 }

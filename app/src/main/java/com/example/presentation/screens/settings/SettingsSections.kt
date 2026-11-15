@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.Pattern
 import androidx.compose.material.icons.filled.PhotoCameraFront
 import androidx.compose.material.icons.filled.PlayArrow
@@ -1088,16 +1089,25 @@ fun SecurityPrivacySection(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (settings.appLockType == "PATTERN") Icons.Default.Pattern else Icons.Default.Lock,
+                            imageVector = when (settings.appLockType) {
+                                "PATTERN" -> Icons.Default.Pattern
+                                "PASSWORD" -> Icons.Default.Password
+                                else -> Icons.Default.Lock
+                            },
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
                     Column {
                         Text("App Lock Protection", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        val lockMethodName = when (settings.appLockType) {
+                            "PATTERN" -> "Pattern Lock"
+                            "PASSWORD" -> "Password Lock"
+                            else -> "PIN Lock"
+                        }
                         Text(
                             text = if (settings.appLockEnabled) {
-                                "${if (settings.appLockType == "PATTERN") "Pattern Lock" else "PIN Lock"} Active (${settings.lockedAppPackages.size} apps)"
+                                "$lockMethodName Active (${settings.lockedAppPackages.size} apps)"
                             } else "Disabled • Tap to configure",
                             fontSize = 12.sp,
                             color = if (settings.appLockEnabled) AppSemanticColors.emeraldText else MaterialTheme.colorScheme.onSurfaceVariant,

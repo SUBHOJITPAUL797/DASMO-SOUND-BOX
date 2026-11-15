@@ -31,9 +31,10 @@ data class AppSettings(
     val shopUpiId: String = "",
     val shopName: String = "My Shop",
     val appLockEnabled: Boolean = false,
-    val appLockType: String = "PATTERN", // "PATTERN" or "PIN"
+    val appLockType: String = "PATTERN", // "PATTERN", "PIN", or "PASSWORD"
     val appLockPin: String = "",
     val appLockPattern: String = "",
+    val appLockPassword: String = "",
     val lockedAppPackages: Set<String> = emptySet(),
     val intruderSelfieEnabled: Boolean = true
 )

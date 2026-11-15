@@ -71,6 +71,7 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
             appLockType = preferences[PreferencesKeys.APP_LOCK_TYPE] ?: "PATTERN",
             appLockPin = preferences[PreferencesKeys.APP_LOCK_PIN] ?: "",
             appLockPattern = preferences[PreferencesKeys.APP_LOCK_PATTERN] ?: "",
+            appLockPassword = preferences[PreferencesKeys.APP_LOCK_PASSWORD] ?: "",
             lockedAppPackages = preferences[PreferencesKeys.LOCKED_APP_PACKAGES] ?: emptySet(),
             intruderSelfieEnabled = preferences[PreferencesKeys.INTRUDER_SELFIE_ENABLED] ?: true
         )
@@ -120,6 +121,7 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
             preferences[PreferencesKeys.APP_LOCK_TYPE] = updated.appLockType
             preferences[PreferencesKeys.APP_LOCK_PIN] = updated.appLockPin
             preferences[PreferencesKeys.APP_LOCK_PATTERN] = updated.appLockPattern
+            preferences[PreferencesKeys.APP_LOCK_PASSWORD] = updated.appLockPassword
             preferences[PreferencesKeys.LOCKED_APP_PACKAGES] = updated.lockedAppPackages
             preferences[PreferencesKeys.INTRUDER_SELFIE_ENABLED] = updated.intruderSelfieEnabled
         }
@@ -153,6 +155,11 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
     override suspend fun updateAppLockPattern(pattern: String) {
         _cachedSettings.value = _cachedSettings.value.copy(appLockPattern = pattern)
         context.dataStore.edit { it[PreferencesKeys.APP_LOCK_PATTERN] = pattern }
+    }
+
+    override suspend fun updateAppLockPassword(password: String) {
+        _cachedSettings.value = _cachedSettings.value.copy(appLockPassword = password)
+        context.dataStore.edit { it[PreferencesKeys.APP_LOCK_PASSWORD] = password }
     }
 
     override suspend fun updateLockedAppPackages(packages: Set<String>) {

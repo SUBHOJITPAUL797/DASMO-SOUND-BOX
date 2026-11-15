@@ -13,6 +13,7 @@ interface SettingsRepository {
     suspend fun updateAppLockType(type: String)
     suspend fun updateAppLockPin(pin: String)
     suspend fun updateAppLockPattern(pattern: String)
+    suspend fun updateAppLockPassword(password: String)
     suspend fun updateLockedAppPackages(packages: Set<String>)
     suspend fun updateIntruderSelfieEnabled(enabled: Boolean)
 }
