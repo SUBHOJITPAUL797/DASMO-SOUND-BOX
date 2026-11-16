@@ -22,9 +22,26 @@ import com.example.domain.model.PaymentEvent
 import com.example.util.ChimePlayer
 import com.example.util.FlashAlertManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+enum class ServiceLifecycleState {
+    STOPPED,
+    STARTING,
+    RUNNING,
+    DESTROYING
+}
+
+sealed interface PaymentPipelineOutcome {
+    data object MissingDependencies : PaymentPipelineOutcome
+    data object ServiceDisabled : PaymentPipelineOutcome
+    data object DuplicateSkipped : PaymentPipelineOutcome
+    data object BelowThreshold : PaymentPipelineOutcome
+    data class Announced(val announcementText: String) : PaymentPipelineOutcome
+}
 
 class SoundBoxForegroundService : LifecycleService() {
 
@@ -41,8 +58,17 @@ class SoundBoxForegroundService : LifecycleService() {
         const val EXTRA_SOURCE_TYPE = "extra_source_type"
 
         @Volatile
+        var lifecycleState: ServiceLifecycleState = ServiceLifecycleState.STOPPED
+            private set
+
+        @Volatile
         var isRunning: Boolean = false
             private set
+
+        private fun updateLifecycleState(newState: ServiceLifecycleState) {
+            lifecycleState = newState
+            isRunning = (newState == ServiceLifecycleState.RUNNING)
+        }
         
         fun start(context: Context, initialEvent: PaymentEvent? = null) {
             try {
@@ -73,13 +99,17 @@ class SoundBoxForegroundService : LifecycleService() {
     }
 
     private var paymentChannel = Channel<PaymentEvent>(Channel.UNLIMITED)
+    private var queueWorkerJob: Job? = null
+    private var eventCollectorJob: Job? = null
+    private var appLockMonitorJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
-        isRunning = true
+        updateLifecycleState(ServiceLifecycleState.STARTING)
 
         // Call startForeground immediately in onCreate to prevent ForegroundServiceDidNotStartInTimeException
         startForegroundSafely()
+        updateLifecycleState(ServiceLifecycleState.RUNNING)
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -105,8 +135,9 @@ class SoundBoxForegroundService : LifecycleService() {
     }
 
     private fun startAppLockMonitor() {
-        lifecycleScope.launch(Dispatchers.Default) {
-            while (isRunning) {
+        appLockMonitorJob?.cancel()
+        appLockMonitorJob = lifecycleScope.launch(Dispatchers.Default) {
+            while (isActive && lifecycleState == ServiceLifecycleState.RUNNING) {
                 try {
                     com.example.util.AppLockManager.checkForegroundAndLock(applicationContext)
                 } catch (e: Throwable) {
@@ -119,7 +150,7 @@ class SoundBoxForegroundService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        isRunning = true
+        updateLifecycleState(ServiceLifecycleState.RUNNING)
         startForegroundSafely()
 
         if (intent != null && intent.hasExtra(EXTRA_AMOUNT)) {
@@ -171,7 +202,8 @@ class SoundBoxForegroundService : LifecycleService() {
     }
 
     private fun observePaymentEvents() {
-        lifecycleScope.launch(Dispatchers.IO) {
+        eventCollectorJob?.cancel()
+        eventCollectorJob = lifecycleScope.launch(Dispatchers.IO) {
             try {
                 AppModule.getOrInit(applicationContext)
                 AppModule.paymentEventBus?.events?.collect { event ->
@@ -184,9 +216,11 @@ class SoundBoxForegroundService : LifecycleService() {
     }
 
     private fun startQueueWorker() {
-        lifecycleScope.launch(Dispatchers.IO) {
+        queueWorkerJob?.cancel()
+        queueWorkerJob = lifecycleScope.launch(Dispatchers.IO) {
             try {
                 for (event in paymentChannel) {
+                    if (lifecycleState == ServiceLifecycleState.DESTROYING) break
                     try {
                         processPaymentEventSequential(event)
                     } catch (e: Throwable) {
@@ -199,7 +233,7 @@ class SoundBoxForegroundService : LifecycleService() {
         }
     }
 
-    private suspend fun processPaymentEventSequential(event: PaymentEvent) {
+    private suspend fun processPaymentEventSequential(event: PaymentEvent): PaymentPipelineOutcome {
         val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SoundBox:AnnouncementWakelock")
         try {
@@ -210,12 +244,13 @@ class SoundBoxForegroundService : LifecycleService() {
 
         try {
             AppModule.getOrInit(applicationContext)
-            val settings = AppModule.settingsRepository?.getLatestSettings() ?: return
-            if (!settings.isEnabled) return
+            val settings = AppModule.settingsRepository?.getLatestSettings()
+                ?: return PaymentPipelineOutcome.MissingDependencies
+            if (!settings.isEnabled) return PaymentPipelineOutcome.ServiceDisabled
 
-            val dedupEngine = AppModule.dedupEngine ?: return
-            val ttsEngine = AppModule.ttsEngine ?: return
-            val saveTransaction = AppModule.saveTransactionUseCase ?: return
+            val dedupEngine = AppModule.dedupEngine ?: return PaymentPipelineOutcome.MissingDependencies
+            val ttsEngine = AppModule.ttsEngine ?: return PaymentPipelineOutcome.MissingDependencies
+            val saveTransaction = AppModule.saveTransactionUseCase ?: return PaymentPipelineOutcome.MissingDependencies
             
             val dedupKey = dedupEngine.generateKey(event.amount, event.payerName, event.refId)
             val isDuplicate = dedupEngine.isDuplicate(event.amount, event.payerName, event.refId)
@@ -224,13 +259,13 @@ class SoundBoxForegroundService : LifecycleService() {
             
             if (isDuplicate) {
                 saveTransaction(enrichedEvent, AnnouncementStatus.DUPLICATE_SKIPPED, null)
-                return
+                return PaymentPipelineOutcome.DuplicateSkipped
             }
 
             if (settings.minAmountThreshold > 0 && event.amount < settings.minAmountThreshold) {
                 Log.d(TAG, "Skipping payment below threshold: ${event.amount} < ${settings.minAmountThreshold}")
-                saveTransaction(enrichedEvent, AnnouncementStatus.DUPLICATE_SKIPPED, "Below threshold ₹${settings.minAmountThreshold}")
-                return
+                saveTransaction(enrichedEvent, AnnouncementStatus.BELOW_THRESHOLD, "Below threshold ₹${settings.minAmountThreshold}")
+                return PaymentPipelineOutcome.BelowThreshold
             }
 
             val announcementText = ttsEngine.buildAnnouncementText(
@@ -253,7 +288,6 @@ class SoundBoxForegroundService : LifecycleService() {
             try {
                 if (settings.chimeEnabled) {
                     ChimePlayer.play(applicationContext, settings.chimeSound, settings.announcementVolume)
-                    // Zero delay(300) dead air! Chime transitions immediately to speech.
                 }
 
                 // Suspend until TTS announcement finishes completely (NO overlap)
@@ -270,8 +304,7 @@ class SoundBoxForegroundService : LifecycleService() {
             }
             
             saveTransaction(enrichedEvent, AnnouncementStatus.ANNOUNCED, announcementText)
-            
-            // Trailing delay(300) removed to eliminate queue stalling between consecutive payments!
+            return PaymentPipelineOutcome.Announced(announcementText)
         } finally {
             try {
                 if (wakeLock?.isHeld == true) {
@@ -322,8 +355,12 @@ class SoundBoxForegroundService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        updateLifecycleState(ServiceLifecycleState.DESTROYING)
+        appLockMonitorJob?.cancel()
+        eventCollectorJob?.cancel()
+        queueWorkerJob?.cancel()
         super.onDestroy()
-        isRunning = false
+        updateLifecycleState(ServiceLifecycleState.STOPPED)
         try {
             paymentChannel.close()
         } catch (e: Throwable) {}

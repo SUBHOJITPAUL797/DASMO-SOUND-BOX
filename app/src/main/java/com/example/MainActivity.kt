@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
         val settingsRepo = AppModule.settingsRepository ?: return
         lifecycleScope.launch {
             val settings = settingsRepo.getSettings().firstOrNull() ?: return@launch
-            val hasCredentials = settings.appLockPattern.isNotBlank() || settings.appLockPin.isNotBlank()
+            val hasCredentials = AppLockManager.hasConfiguredCredentials(settings)
             if (settings.appLockEnabled && hasCredentials && settings.lockedAppPackages.contains(packageName)) {
                 if (!AppLockManager.isAppTemporarilyUnlocked(packageName)) {
                     try {

@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import android.util.Size
+import androidx.annotation.VisibleForTesting
 import androidx.core.content.ContextCompat
 import com.example.data.database.entity.IntruderLogEntity
 import com.example.di.AppModule
@@ -20,10 +21,143 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
+enum class CapturePhase {
+    IDLE,
+    OPENING_CAMERA,
+    CAMERA_OPENED,
+    SESSION_CONFIGURED,
+    CAPTURING,
+    IMAGE_CAPTURED,
+    COMPLETED,
+    TIMED_OUT,
+    FAILED
+}
+
 object IntruderCaptureManager {
 
     private const val TAG = "IntruderCaptureManager"
     private val isCapturing = AtomicBoolean(false)
+
+    @Volatile
+    @VisibleForTesting
+    internal var currentPhase: CapturePhase = CapturePhase.IDLE
+        private set
+
+    private class CaptureSessionCoordinator(
+        private val appContext: Context,
+        private val targetPackage: String,
+        private val targetAppName: String,
+        private val lockType: String,
+        private val failedAttempts: Int,
+        private val handlerThread: HandlerThread,
+        private val handler: Handler
+    ) {
+        private val stateLock = Any()
+        var phase: CapturePhase = CapturePhase.OPENING_CAMERA
+            private set
+        private var incidentLogged = false
+        private var cameraDevice: CameraDevice? = null
+        private var captureSession: CameraCaptureSession? = null
+        private var imageReader: ImageReader? = null
+
+        init {
+            currentPhase = phase
+        }
+
+        private fun isTerminal(p: CapturePhase): Boolean =
+            p == CapturePhase.COMPLETED || p == CapturePhase.TIMED_OUT || p == CapturePhase.FAILED
+
+        fun attachReader(reader: ImageReader) {
+            synchronized(stateLock) {
+                if (isTerminal(phase)) {
+                    try { reader.close() } catch (_: Exception) {}
+                    return
+                }
+                imageReader = reader
+            }
+        }
+
+        fun onCameraOpened(camera: CameraDevice): Boolean {
+            synchronized(stateLock) {
+                cameraDevice = camera
+                if (isTerminal(phase)) {
+                    try { camera.close() } catch (_: Exception) {}
+                    return false
+                }
+                phase = CapturePhase.CAMERA_OPENED
+                currentPhase = phase
+                return true
+            }
+        }
+
+        fun onSessionConfigured(session: CameraCaptureSession): Boolean {
+            synchronized(stateLock) {
+                captureSession = session
+                if (isTerminal(phase)) {
+                    try { session.close() } catch (_: Exception) {}
+                    return false
+                }
+                phase = CapturePhase.SESSION_CONFIGURED
+                currentPhase = phase
+                return true
+            }
+        }
+
+        fun markCapturing() {
+            synchronized(stateLock) {
+                if (!isTerminal(phase)) {
+                    phase = CapturePhase.CAPTURING
+                    currentPhase = phase
+                }
+            }
+        }
+
+        fun tryClaimPhotoLog(): Boolean {
+            synchronized(stateLock) {
+                if (isTerminal(phase) || incidentLogged) return false
+                incidentLogged = true
+                phase = CapturePhase.IMAGE_CAPTURED
+                currentPhase = phase
+                return true
+            }
+        }
+
+        fun finish(terminalPhase: CapturePhase, logTextFallbackIfNeeded: Boolean) {
+            val shouldLogFallback: Boolean
+            val sessionToClose: CameraCaptureSession?
+            val cameraToClose: CameraDevice?
+            val readerToClose: ImageReader?
+
+            synchronized(stateLock) {
+                if (isTerminal(phase)) return
+                phase = terminalPhase
+                currentPhase = terminalPhase
+                shouldLogFallback = logTextFallbackIfNeeded && !incidentLogged
+                if (shouldLogFallback) {
+                    incidentLogged = true
+                }
+                sessionToClose = captureSession
+                cameraToClose = cameraDevice
+                readerToClose = imageReader
+                captureSession = null
+                cameraDevice = null
+                imageReader = null
+            }
+
+            handler.removeCallbacksAndMessages(null)
+            try { sessionToClose?.close() } catch (_: Exception) {}
+            try { cameraToClose?.close() } catch (_: Exception) {}
+            try { readerToClose?.close() } catch (_: Exception) {}
+            try { handlerThread.quitSafely() } catch (_: Exception) {}
+            isCapturing.set(false)
+            currentPhase = CapturePhase.IDLE
+            Log.d(TAG, "Intruder capture finished in phase=$terminalPhase and resources cleaned up.")
+
+            if (shouldLogFallback) {
+                recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
+            }
+        }
+    }
 
     /**
      * Silently captures an intruder selfie using the front camera and logs it.
@@ -53,36 +187,20 @@ object IntruderCaptureManager {
 
         val handlerThread = HandlerThread("IntruderCaptureThread").apply { start() }
         val handler = Handler(handlerThread.looper)
-
-        val isCleanedUp = AtomicBoolean(false)
-        val incidentLogged = AtomicBoolean(false)
-        var cameraDevice: CameraDevice? = null
-        var captureSession: CameraCaptureSession? = null
-        var imageReader: ImageReader? = null
-
-        fun logFallbackOnce() {
-            if (incidentLogged.compareAndSet(false, true)) {
-                recordIncidentWithoutPhoto(appContext, targetPackage, targetAppName, lockType, failedAttempts)
-            }
-        }
-
-        fun cleanup() {
-            if (isCleanedUp.compareAndSet(false, true)) {
-                handler.removeCallbacksAndMessages(null)
-                try { captureSession?.close() } catch (_: Exception) {}
-                try { cameraDevice?.close() } catch (_: Exception) {}
-                try { imageReader?.close() } catch (_: Exception) {}
-                try { handlerThread.quitSafely() } catch (_: Exception) {}
-                isCapturing.set(false)
-                Log.d(TAG, "Intruder capture resources cleaned up.")
-            }
-        }
+        val coordinator = CaptureSessionCoordinator(
+            appContext = appContext,
+            targetPackage = targetPackage,
+            targetAppName = targetAppName,
+            lockType = lockType,
+            failedAttempts = failedAttempts,
+            handlerThread = handlerThread,
+            handler = handler
+        )
 
         // 8-second watchdog timer to prevent indefinite lockup
         val timeoutRunnable = Runnable {
             Log.w(TAG, "Intruder capture timed out (8s limit reached). Forcing cleanup.")
-            cleanup()
-            logFallbackOnce()
+            coordinator.finish(CapturePhase.TIMED_OUT, logTextFallbackIfNeeded = true)
         }
         handler.postDelayed(timeoutRunnable, 8000L)
 
@@ -110,8 +228,7 @@ object IntruderCaptureManager {
 
             if (selectedCameraId == null) {
                 Log.e(TAG, "No camera device available.")
-                cleanup()
-                logFallbackOnce()
+                coordinator.finish(CapturePhase.FAILED, logTextFallbackIfNeeded = true)
                 return
             }
 
@@ -129,9 +246,10 @@ object IntruderCaptureManager {
             } ?: Size(targetWidth, targetHeight)
 
             val reader = ImageReader.newInstance(chosenSize.width, chosenSize.height, ImageFormat.JPEG, 1)
-            imageReader = reader
+            coordinator.attachReader(reader)
 
             reader.setOnImageAvailableListener({ ir ->
+                var capturedSuccess = false
                 try {
                     val image = ir.acquireLatestImage()
                     if (image != null) {
@@ -143,8 +261,8 @@ object IntruderCaptureManager {
                             // Save image to files dir directly (no double rotation)
                             val photoFile = savePhotoWithOrientation(appContext, bytes, sensorOrientation)
 
-                            // Insert into DB only once
-                            if (incidentLogged.compareAndSet(false, true)) {
+                            if (coordinator.tryClaimPhotoLog()) {
+                                capturedSuccess = true
                                 CoroutineScope(Dispatchers.IO).launch {
                                     try {
                                         AppModule.getOrInit(appContext)
@@ -171,29 +289,25 @@ object IntruderCaptureManager {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error processing intruder photo bytes", e)
                 } finally {
-                    cleanup()
+                    coordinator.finish(
+                        terminalPhase = if (capturedSuccess) CapturePhase.COMPLETED else CapturePhase.FAILED,
+                        logTextFallbackIfNeeded = !capturedSuccess
+                    )
                 }
             }, handler)
 
             cameraManager.openCamera(selectedCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
-                    cameraDevice = camera
-                    if (isCleanedUp.get()) {
-                        try { camera.close() } catch (_: Exception) {}
-                        return
-                    }
+                    if (!coordinator.onCameraOpened(camera)) return
                     try {
                         val surface = reader.surface
                         val surfaces = listOf(surface)
 
                         camera.createCaptureSession(surfaces, object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(session: CameraCaptureSession) {
-                                captureSession = session
-                                if (isCleanedUp.get()) {
-                                    try { session.close() } catch (_: Exception) {}
-                                    return
-                                }
+                                if (!coordinator.onSessionConfigured(session)) return
                                 try {
+                                    coordinator.markCapturing()
                                     val captureBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                                         addTarget(surface)
                                         set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
@@ -207,7 +321,7 @@ object IntruderCaptureManager {
                                             result: TotalCaptureResult
                                         ) {
                                             super.onCaptureCompleted(session, request, result)
-                                            // Defer closing session and camera to onImageAvailable's cleanup() so JPEG buffer isn't aborted
+                                            // Defer closing session and camera to onImageAvailable so JPEG buffer isn't aborted
                                         }
 
                                         override fun onCaptureFailed(
@@ -217,47 +331,41 @@ object IntruderCaptureManager {
                                         ) {
                                             super.onCaptureFailed(session, request, failure)
                                             Log.e(TAG, "Capture failed: ${failure.reason}")
-                                            cleanup()
-                                            logFallbackOnce()
+                                            coordinator.finish(CapturePhase.FAILED, logTextFallbackIfNeeded = true)
                                         }
                                     }, handler)
                                 } catch (e: Exception) {
                                     Log.e(TAG, "Failed to build or start capture request", e)
-                                    cleanup()
-                                    logFallbackOnce()
+                                    coordinator.finish(CapturePhase.FAILED, logTextFallbackIfNeeded = true)
                                 }
                             }
 
                             override fun onConfigureFailed(session: CameraCaptureSession) {
                                 Log.e(TAG, "Camera capture session configuration failed")
-                                cleanup()
-                                logFallbackOnce()
+                                coordinator.finish(CapturePhase.FAILED, logTextFallbackIfNeeded = true)
                             }
                         }, handler)
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed creating capture session", e)
-                        cleanup()
-                        logFallbackOnce()
+                        coordinator.finish(CapturePhase.FAILED, logTextFallbackIfNeeded = true)
                     }
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
-                    cameraDevice = camera
-                    cleanup()
+                    coordinator.onCameraOpened(camera)
+                    coordinator.finish(CapturePhase.FAILED, logTextFallbackIfNeeded = true)
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
                     Log.e(TAG, "Camera device error: $error")
-                    cameraDevice = camera
-                    cleanup()
-                    logFallbackOnce()
+                    coordinator.onCameraOpened(camera)
+                    coordinator.finish(CapturePhase.FAILED, logTextFallbackIfNeeded = true)
                 }
             }, handler)
 
         } catch (e: Exception) {
             Log.e(TAG, "Exception during silent intruder photo capture", e)
-            cleanup()
-            logFallbackOnce()
+            coordinator.finish(CapturePhase.FAILED, logTextFallbackIfNeeded = true)
         }
     }
 

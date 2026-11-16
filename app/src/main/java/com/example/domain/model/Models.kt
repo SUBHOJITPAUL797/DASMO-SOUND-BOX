@@ -18,7 +18,7 @@ data class PaymentEvent(
 
 enum class SourceType { NOTIFICATION, SMS }
 
-enum class AnnouncementStatus { ANNOUNCED, DUPLICATE_SKIPPED, PARSE_ERROR }
+enum class AnnouncementStatus { ANNOUNCED, DUPLICATE_SKIPPED, BELOW_THRESHOLD, PARSE_ERROR }
 
 @Serializable
 data class MessageTemplate(

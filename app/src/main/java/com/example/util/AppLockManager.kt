@@ -16,18 +16,63 @@ import com.example.presentation.screens.applock.AppLockActivity
 import kotlinx.coroutines.flow.firstOrNull
 import java.util.concurrent.ConcurrentHashMap
 
+sealed interface ForegroundLockDecision {
+    data object Disabled : ForegroundLockDecision
+    data object NoCredentials : ForegroundLockDecision
+    data object NoForegroundApp : ForegroundLockDecision
+    data object SelfApp : ForegroundLockDecision
+    data object AlreadyOnForegroundApp : ForegroundLockDecision
+    data class UnprotectedApp(val packageName: String) : ForegroundLockDecision
+    data class TemporarilyUnlocked(val packageName: String) : ForegroundLockDecision
+    data class CooldownDebounced(val packageName: String) : ForegroundLockDecision
+    data class PromptRequired(val packageName: String) : ForegroundLockDecision
+}
+
 object AppLockManager {
 
     private val unlockedSessionMap = ConcurrentHashMap<String, Long>()
     private const val UNLOCK_TIMEOUT_MS = 60_000L // 60 seconds grace period while switching
+    private const val PROMPT_COOLDOWN_MS = 2000L
 
+    @Volatile
     var lastForegroundPackage: String? = null
     @Volatile private var lastLockPromptPackage: String? = null
     @Volatile private var lastLockPromptTimeMs: Long = 0L
 
-    fun isAppTemporarilyUnlocked(packageName: String): Boolean {
+    fun hasConfiguredCredentials(settings: com.example.domain.model.AppSettings): Boolean {
+        return settings.appLockPattern.isNotBlank() ||
+            settings.appLockPin.isNotBlank() ||
+            settings.appLockPassword.isNotBlank()
+    }
+
+    fun evaluateForegroundLock(
+        settings: com.example.domain.model.AppSettings,
+        foregroundPackage: String?,
+        selfPackage: String,
+        nowMs: Long = System.currentTimeMillis()
+    ): ForegroundLockDecision {
+        if (!settings.appLockEnabled) return ForegroundLockDecision.Disabled
+        if (!hasConfiguredCredentials(settings)) return ForegroundLockDecision.NoCredentials
+        if (foregroundPackage.isNullOrBlank()) return ForegroundLockDecision.NoForegroundApp
+        if (foregroundPackage == selfPackage) return ForegroundLockDecision.SelfApp
+        if (foregroundPackage == lastForegroundPackage) {
+            return ForegroundLockDecision.AlreadyOnForegroundApp
+        }
+        if (!settings.lockedAppPackages.contains(foregroundPackage)) {
+            return ForegroundLockDecision.UnprotectedApp(foregroundPackage)
+        }
+        if (isAppTemporarilyUnlocked(foregroundPackage, nowMs)) {
+            return ForegroundLockDecision.TemporarilyUnlocked(foregroundPackage)
+        }
+        if (foregroundPackage == lastLockPromptPackage && nowMs - lastLockPromptTimeMs < PROMPT_COOLDOWN_MS) {
+            return ForegroundLockDecision.CooldownDebounced(foregroundPackage)
+        }
+        return ForegroundLockDecision.PromptRequired(foregroundPackage)
+    }
+
+    fun isAppTemporarilyUnlocked(packageName: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val unlockTime = unlockedSessionMap[packageName] ?: return false
-        if (System.currentTimeMillis() - unlockTime < UNLOCK_TIMEOUT_MS) {
+        if (nowMs - unlockTime < UNLOCK_TIMEOUT_MS) {
             return true
         }
         unlockedSessionMap.remove(packageName)
@@ -40,6 +85,9 @@ object AppLockManager {
 
     fun relockAll() {
         unlockedSessionMap.clear()
+        lastForegroundPackage = null
+        lastLockPromptPackage = null
+        lastLockPromptTimeMs = 0L
     }
 
     fun hasUsageAccessPermission(context: Context): Boolean {
@@ -115,25 +163,17 @@ object AppLockManager {
      */
     suspend fun checkForegroundAndLock(context: Context) {
         val settings = AppModule.settingsRepository?.getSettings()?.firstOrNull() ?: return
-        if (!settings.appLockEnabled) return
-        if (settings.appLockPattern.isBlank() && settings.appLockPin.isBlank()) return
+        val foreground = getForegroundPackage(context)
+        val now = System.currentTimeMillis()
 
-        val foreground = getForegroundPackage(context) ?: return
-        if (foreground == context.packageName) return // We handle our own internal locks via activity/screen
-        if (foreground == lastForegroundPackage) return // Already showing or active
-
-        if (settings.lockedAppPackages.contains(foreground)) {
-            if (!isAppTemporarilyUnlocked(foreground)) {
-                val now = System.currentTimeMillis()
-                if (foreground == lastLockPromptPackage && now - lastLockPromptTimeMs < 2000L) {
-                    return
-                }
-                lastForegroundPackage = foreground
-                lastLockPromptPackage = foreground
+        when (val decision = evaluateForegroundLock(settings, foreground, context.packageName, now)) {
+            is ForegroundLockDecision.PromptRequired -> {
+                lastForegroundPackage = decision.packageName
+                lastLockPromptPackage = decision.packageName
                 lastLockPromptTimeMs = now
                 val intent = Intent(context, AppLockActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    putExtra(AppLockActivity.EXTRA_PACKAGE_NAME, foreground)
+                    putExtra(AppLockActivity.EXTRA_PACKAGE_NAME, decision.packageName)
                 }
                 try {
                     context.startActivity(intent)
@@ -141,8 +181,16 @@ object AppLockManager {
                     // May fail silently if overlay/background activity start is restricted
                 }
             }
-        } else {
-            lastForegroundPackage = foreground
+            is ForegroundLockDecision.UnprotectedApp -> {
+                lastForegroundPackage = decision.packageName
+            }
+            ForegroundLockDecision.Disabled,
+            ForegroundLockDecision.NoCredentials,
+            ForegroundLockDecision.NoForegroundApp,
+            ForegroundLockDecision.SelfApp,
+            ForegroundLockDecision.AlreadyOnForegroundApp,
+            is ForegroundLockDecision.TemporarilyUnlocked,
+            is ForegroundLockDecision.CooldownDebounced -> Unit
         }
     }
 }

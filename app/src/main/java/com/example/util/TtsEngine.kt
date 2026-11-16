@@ -35,9 +35,20 @@ data class TonePreset(
     val speed: Float
 )
 
+enum class TtsInitState {
+    UNINITIALIZED,
+    INITIALIZING,
+    READY,
+    FAILED,
+    SHUTDOWN
+}
+
 class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
+    @Volatile
+    var currentInitState: TtsInitState = TtsInitState.UNINITIALIZED
+        private set
     @Volatile private var isInitialized = false
     private val initLock = Any()
     private val initDeferredRef = AtomicReference<CompletableDeferred<Boolean>>(CompletableDeferred())
@@ -71,18 +82,24 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         )
     }
 
+    private fun setInitStateLocked(newState: TtsInitState) {
+        currentInitState = newState
+        isInitialized = (newState == TtsInitState.READY)
+    }
+
     fun ensureInitialized() {
         synchronized(initLock) {
-            if (tts == null) {
+            if (tts == null && currentInitState != TtsInitState.INITIALIZING) {
                 val currentDeferred = initDeferredRef.get()
                 if (currentDeferred.isCompleted) {
                     initDeferredRef.set(CompletableDeferred())
                 }
+                setInitStateLocked(TtsInitState.INITIALIZING)
                 try {
                     tts = TextToSpeech(context.applicationContext, this)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error initializing TextToSpeech: ${e.message}")
-                    isInitialized = false
+                    setInitStateLocked(TtsInitState.FAILED)
                     initDeferredRef.get().complete(false)
                 }
             }
@@ -92,7 +109,7 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
     fun reinitialize() {
         synchronized(initLock) {
             try {
-                isInitialized = false
+                setInitStateLocked(TtsInitState.UNINITIALIZED)
                 tts?.shutdown()
             } catch (e: Exception) {
                 Log.w(TAG, "Error shutting down previous TTS: ${e.message}")
@@ -107,8 +124,12 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         synchronized(initLock) {
+            if (currentInitState == TtsInitState.SHUTDOWN || tts == null) {
+                Log.d(TAG, "Ignoring late TTS onInit callback in state $currentInitState")
+                return
+            }
             if (status == TextToSpeech.SUCCESS) {
-                isInitialized = true
+                setInitStateLocked(TtsInitState.READY)
                 try {
                     pendingLanguage?.let { setLanguage(it) } ?: run { setLanguage("en-IN") }
                 } catch (e: Exception) {
@@ -116,7 +137,7 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
                 }
                 initDeferredRef.get().complete(true)
             } else {
-                isInitialized = false
+                setInitStateLocked(TtsInitState.FAILED)
                 Log.e(TAG, "TTS onInit failed with status: $status")
                 try {
                     tts?.shutdown()
@@ -131,11 +152,11 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
 
     suspend fun awaitInitialization(timeoutMs: Long = 3000L): Boolean {
         ensureInitialized()
-        if (isInitialized) return true
+        if (currentInitState == TtsInitState.READY) return true
         val deferred = initDeferredRef.get()
         return withTimeoutOrNull(timeoutMs) {
             deferred.await()
-        } ?: isInitialized
+        } ?: (currentInitState == TtsInitState.READY)
     }
 
     fun preWarm(language: String? = null, rate: Float? = null, pitch: Float? = null, voiceName: String? = null) {
@@ -648,14 +669,15 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
         stop()
         synchronized(initLock) {
             try {
-                isInitialized = false
+                setInitStateLocked(TtsInitState.SHUTDOWN)
                 tts?.shutdown()
                 tts = null
                 clearCachedSettings()
                 val current = initDeferredRef.get()
-                if (current.isCompleted) {
-                    initDeferredRef.set(CompletableDeferred())
+                if (!current.isCompleted) {
+                    current.complete(false)
                 }
+                initDeferredRef.set(CompletableDeferred())
             } catch (e: Exception) {
                 Log.w(TAG, "TTS shutdown error: ${e.message}")
             }

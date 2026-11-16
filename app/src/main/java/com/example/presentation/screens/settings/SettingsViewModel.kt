@@ -16,11 +16,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
+
+sealed interface VoicePreviewState {
+    data object Idle : VoicePreviewState
+    data class Playing(val seq: Int) : VoicePreviewState
+}
 
 class SettingsViewModel : ViewModel() {
     private val settingsRepo = AppModule.settingsRepository!!
@@ -41,8 +47,12 @@ class SettingsViewModel : ViewModel() {
     private val _availableVoices = MutableStateFlow<List<VoiceOption>>(emptyList())
     val availableVoices: StateFlow<List<VoiceOption>> = _availableVoices.asStateFlow()
 
-    private val _isPlayingPreview = MutableStateFlow(false)
-    val isPlayingPreview: StateFlow<Boolean> = _isPlayingPreview.asStateFlow()
+    private val _previewState = MutableStateFlow<VoicePreviewState>(VoicePreviewState.Idle)
+    val previewState: StateFlow<VoicePreviewState> = _previewState.asStateFlow()
+
+    val isPlayingPreview: StateFlow<Boolean> = _previewState
+        .map { it is VoicePreviewState.Playing }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private var previewJob: Job? = null
     private val previewSeq = AtomicInteger(0)
@@ -178,7 +188,7 @@ class SettingsViewModel : ViewModel() {
     fun stopAudio() {
         previewSeq.incrementAndGet()
         previewJob?.cancel()
-        _isPlayingPreview.value = false
+        _previewState.value = VoicePreviewState.Idle
         ttsEngine.stop()
     }
 
@@ -191,7 +201,7 @@ class SettingsViewModel : ViewModel() {
         previewJob?.cancel()
         val seq = previewSeq.incrementAndGet()
         previewJob = viewModelScope.launch {
-            _isPlayingPreview.value = true
+            _previewState.value = VoicePreviewState.Playing(seq)
             try {
                 val settings = uiState.value
                 val currentRate = rate ?: settings.speechRate
@@ -219,7 +229,7 @@ class SettingsViewModel : ViewModel() {
                 )
             } finally {
                 if (previewSeq.get() == seq) {
-                    _isPlayingPreview.value = false
+                    _previewState.value = VoicePreviewState.Idle
                 }
             }
         }

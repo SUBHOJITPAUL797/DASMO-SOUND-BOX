@@ -1215,13 +1215,15 @@ fun ActivityRow(
     val context = LocalContext.current
     val statusColor = when (tx.status) {
         AnnouncementStatus.ANNOUNCED.name -> BrandEmerald
-        AnnouncementStatus.DUPLICATE_SKIPPED.name -> BrandAmber
+        AnnouncementStatus.DUPLICATE_SKIPPED.name,
+        AnnouncementStatus.BELOW_THRESHOLD.name -> BrandAmber
         else -> BrandCoral
     }
 
     val statusText = when (tx.status) {
         AnnouncementStatus.ANNOUNCED.name -> "Announced"
         AnnouncementStatus.DUPLICATE_SKIPPED.name -> "Skipped"
+        AnnouncementStatus.BELOW_THRESHOLD.name -> "Below Min"
         else -> "Error"
     }
 

@@ -79,6 +79,12 @@ import java.io.File
  * can inspect every wide A4 Landscape page, zoom in on columns, save to Downloads,
  * open in an external PDF viewer, or share directly.
  */
+private sealed interface PdfRenderState {
+    data object Loading : PdfRenderState
+    data class Ready(val pages: List<Bitmap>) : PdfRenderState
+    data class Error(val message: String) : PdfRenderState
+}
+
 @Composable
 fun PdfStatementPreviewDialog(
     pdfFile: File,
@@ -88,9 +94,7 @@ fun PdfStatementPreviewDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var renderedPages by remember(pdfFile) { mutableStateOf<List<Bitmap>>(emptyList()) }
-    var isRendering by remember(pdfFile) { mutableStateOf(true) }
-    var renderError by remember(pdfFile) { mutableStateOf<String?>(null) }
+    var renderState by remember(pdfFile) { mutableStateOf<PdfRenderState>(PdfRenderState.Loading) }
     var isZoomed by remember { mutableStateOf(false) }
 
     val saveDocumentLauncher = rememberLauncherForActivityResult(
@@ -117,8 +121,7 @@ fun PdfStatementPreviewDialog(
     }
 
     LaunchedEffect(pdfFile) {
-        isRendering = true
-        renderError = null
+        renderState = PdfRenderState.Loading
         val bitmapsResult = withContext(Dispatchers.IO) {
             runCatching {
                 val pages = mutableListOf<Bitmap>()
@@ -141,17 +144,15 @@ fun PdfStatementPreviewDialog(
                 pages
             }
         }
-        bitmapsResult.onSuccess { pages ->
-            renderedPages = pages
-        }.onFailure { err ->
-            renderError = err.message ?: "Unable to render PDF pages"
-        }
-        isRendering = false
+        renderState = bitmapsResult.fold(
+            onSuccess = { PdfRenderState.Ready(it) },
+            onFailure = { PdfRenderState.Error(it.message ?: "Unable to render PDF pages") }
+        )
     }
 
     DisposableEffect(pdfFile) {
         onDispose {
-            renderedPages.forEach { bmp ->
+            (renderState as? PdfRenderState.Ready)?.pages?.forEach { bmp ->
                 if (!bmp.isRecycled) bmp.recycle()
             }
         }
@@ -188,8 +189,9 @@ fun PdfStatementPreviewDialog(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         val displayShop = shopName.trim().ifBlank { "My Shop" }
-                        val pageSummary = if (renderedPages.isNotEmpty()) {
-                            "$displayShop • ${renderedPages.size} page${if (renderedPages.size == 1) "" else "s"}"
+                        val readyPages = (renderState as? PdfRenderState.Ready)?.pages
+                        val pageSummary = if (!readyPages.isNullOrEmpty()) {
+                            "$displayShop • ${readyPages.size} page${if (readyPages.size == 1) "" else "s"}"
                         } else {
                             displayShop
                         }
@@ -234,8 +236,8 @@ fun PdfStatementPreviewDialog(
                     val containerWidth = maxWidth
                     val pageRenderWidth = if (isZoomed) containerWidth * 1.75f else (containerWidth - 24.dp).coerceAtLeast(240.dp)
 
-                    when {
-                        isRendering -> {
+                    when (val state = renderState) {
+                        PdfRenderState.Loading -> {
                             Column(
                                 modifier = Modifier.align(Alignment.Center),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -250,7 +252,7 @@ fun PdfStatementPreviewDialog(
                             }
                         }
 
-                        renderError != null -> {
+                        is PdfRenderState.Error -> {
                             Column(
                                 modifier = Modifier
                                     .align(Alignment.Center)
@@ -264,14 +266,14 @@ fun PdfStatementPreviewDialog(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    renderError ?: "",
+                                    state.message,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
-                        else -> {
+                        is PdfRenderState.Ready -> {
                             val hScroll = rememberScrollState()
                             Box(
                                 modifier = Modifier
@@ -284,7 +286,7 @@ fun PdfStatementPreviewDialog(
                                     verticalArrangement = Arrangement.spacedBy(14.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    itemsIndexed(renderedPages) { idx, bmp ->
+                                    itemsIndexed(state.pages) { idx, bmp ->
                                         Column(
                                             verticalArrangement = Arrangement.spacedBy(6.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally
@@ -310,7 +312,7 @@ fun PdfStatementPreviewDialog(
                                                 )
                                             }
                                             Text(
-                                                text = "Page ${idx + 1} of ${renderedPages.size}",
+                                                text = "Page ${idx + 1} of ${state.pages.size}",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontWeight = FontWeight.SemiBold

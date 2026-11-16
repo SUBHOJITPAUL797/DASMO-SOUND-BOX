@@ -691,6 +691,7 @@ object PdfStatementExporter {
         val (statusLabel, pillBg, pillText) = when (tx.status) {
             AnnouncementStatus.ANNOUNCED.name -> Triple("VERIFIED", COLOR_EMERALD_SOFT, COLOR_EMERALD_TEXT)
             AnnouncementStatus.DUPLICATE_SKIPPED.name -> Triple("DUPLICATE", COLOR_AMBER_SOFT, COLOR_AMBER_TEXT)
+            AnnouncementStatus.BELOW_THRESHOLD.name -> Triple("BELOW MIN", COLOR_AMBER_SOFT, COLOR_AMBER_TEXT)
             else -> Triple("IGNORED", COLOR_SURFACE_SOFT, COLOR_MUTED)
         }
         val pillRect = RectF(colX + 6f, topY + 5f, colX + COLUMNS[6].width - 8f, topY + ROW_HEIGHT - 5f)
@@ -811,8 +812,9 @@ object PdfStatementExporter {
             .ifBlank { "My_Shop" }
     }
 
-    internal fun computeChannelSummaries(announcedTxs: List<TransactionEntity>): List<ChannelSummary> {
-        return announcedTxs
+    internal fun computeChannelSummaries(transactions: List<TransactionEntity>): List<ChannelSummary> {
+        return transactions
+            .filter { it.status == AnnouncementStatus.ANNOUNCED.name }
             .groupBy { normalizeChannelName(it.sourceAppName) }
             .map { (name, list) ->
                 ChannelSummary(

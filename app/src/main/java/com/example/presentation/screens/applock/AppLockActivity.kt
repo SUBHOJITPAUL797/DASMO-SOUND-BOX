@@ -127,76 +127,125 @@ class AppLockActivity : ComponentActivity() {
     }
 }
 
+enum class AppLockMethod(val serializedKey: String, val switchLabel: String, val promptLabel: String) {
+    PATTERN("PATTERN", "Use Pattern", "Draw Pattern to Unlock"),
+    PIN("PIN", "Use PIN", "Enter PIN to Unlock"),
+    PASSWORD("PASSWORD", "Use Password", "Enter Password to Unlock");
+
+    companion object {
+        fun fromKey(key: String?): AppLockMethod = when (key) {
+            PIN.serializedKey -> PIN
+            PASSWORD.serializedKey -> PASSWORD
+            else -> PATTERN
+        }
+
+        fun configuredMethods(settings: com.example.domain.model.AppSettings): List<AppLockMethod> = buildList {
+            if (settings.appLockPattern.isNotBlank()) add(PATTERN)
+            if (settings.appLockPin.isNotBlank()) add(PIN)
+            if (settings.appLockPassword.isNotBlank()) add(PASSWORD)
+        }
+
+        fun resolvePreferredMethod(settings: com.example.domain.model.AppSettings): AppLockMethod {
+            val preferred = fromKey(settings.appLockType)
+            val configured = configuredMethods(settings)
+            return when {
+                configured.contains(preferred) -> preferred
+                configured.isNotEmpty() -> configured.first()
+                else -> preferred
+            }
+        }
+    }
+}
+
+private sealed interface LockChallengePhase {
+    data object Ready : LockChallengePhase
+    data class Error(val message: String, val attemptSeq: Int) : LockChallengePhase
+    data object Success : LockChallengePhase
+}
+
 @Composable
 fun AppLockScreen(
     targetPackage: String,
     onUnlocked: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val settingsRepo = AppModule.settingsRepository
     val settings by (settingsRepo?.getSettings() ?: remember { kotlinx.coroutines.flow.emptyFlow<com.example.domain.model.AppSettings>() })
         .collectAsState(initial = null)
 
-    var currentLockType by remember { mutableStateOf("PATTERN") }
-    var lockState by remember { mutableStateOf(PatternState.NORMAL) }
+    var activeMethod by remember { mutableStateOf(AppLockMethod.PATTERN) }
+    var methodManuallySelected by remember { mutableStateOf(false) }
+    var challengePhase by remember { mutableStateOf<LockChallengePhase>(LockChallengePhase.Ready) }
     var failedAttempts by remember { mutableIntStateOf(0) }
-    var statusMessage by remember { mutableStateOf("") }
-    var isStatusError by remember { mutableStateOf(false) }
+    var attemptSeq by remember { mutableIntStateOf(0) }
+
+    val lockState = when (challengePhase) {
+        LockChallengePhase.Ready -> PatternState.NORMAL
+        is LockChallengePhase.Error -> PatternState.ERROR
+        LockChallengePhase.Success -> PatternState.SUCCESS
+    }
+    val statusMessage = when (val phase = challengePhase) {
+        LockChallengePhase.Ready -> ""
+        is LockChallengePhase.Error -> phase.message
+        LockChallengePhase.Success -> "Unlocked successfully!"
+    }
+    val isStatusError = challengePhase is LockChallengePhase.Error
 
     val appName = remember(targetPackage) { AppLockManager.getAppName(context, targetPackage) }
     val appIcon = remember(targetPackage) { AppLockManager.getAppIcon(context, targetPackage) }
 
     LaunchedEffect(settings) {
-        settings?.let {
-            if (it.appLockPattern.isBlank() && it.appLockPin.isBlank() && it.appLockPassword.isBlank()) {
+        settings?.let { currentSettings ->
+            if (!AppLockManager.hasConfiguredCredentials(currentSettings)) {
                 // Fail open if credentials are empty so user is never permanently locked out
                 settingsRepo?.updateAppLockEnabled(false)
                 onUnlocked()
                 return@let
             }
-            currentLockType = when {
-                it.appLockType == "PASSWORD" && it.appLockPassword.isNotBlank() -> "PASSWORD"
-                it.appLockType == "PIN" && it.appLockPin.isNotBlank() -> "PIN"
-                it.appLockType == "PATTERN" && it.appLockPattern.isNotBlank() -> "PATTERN"
-                it.appLockPattern.isNotBlank() -> "PATTERN"
-                it.appLockPin.isNotBlank() -> "PIN"
-                it.appLockPassword.isNotBlank() -> "PASSWORD"
-                else -> it.appLockType.ifBlank { "PATTERN" }
+            if (!methodManuallySelected || !AppLockMethod.configuredMethods(currentSettings).contains(activeMethod)) {
+                activeMethod = AppLockMethod.resolvePreferredMethod(currentSettings)
             }
         }
     }
 
-    fun handleWrongAttempt(attemptType: String) {
+    // State-driven auto-reset / completion timers (auto-cancelled if phase changes!)
+    LaunchedEffect(challengePhase) {
+        when (challengePhase) {
+            is LockChallengePhase.Error -> {
+                delay(1000)
+                challengePhase = LockChallengePhase.Ready
+            }
+            LockChallengePhase.Success -> {
+                delay(300)
+                onUnlocked()
+            }
+            LockChallengePhase.Ready -> Unit
+        }
+    }
+
+    fun handleWrongAttempt(method: AppLockMethod) {
+        if (challengePhase == LockChallengePhase.Success) return
         failedAttempts++
-        lockState = PatternState.ERROR
-        isStatusError = true
-        statusMessage = "Incorrect $attemptType. Attempt $failedAttempts logged."
+        attemptSeq++
+        challengePhase = LockChallengePhase.Error(
+            message = "Incorrect ${method.serializedKey}. Attempt $failedAttempts logged.",
+            attemptSeq = attemptSeq
+        )
 
         if (settings?.intruderSelfieEnabled != false) {
             IntruderCaptureManager.captureIntruderPhoto(
                 context = context,
                 targetPackage = targetPackage,
                 targetAppName = appName,
-                lockType = attemptType,
+                lockType = method.serializedKey,
                 failedAttempts = failedAttempts
             )
-        }
-
-        scope.launch {
-            delay(1000)
-            lockState = PatternState.NORMAL
         }
     }
 
     fun handleSuccess() {
-        lockState = PatternState.SUCCESS
-        isStatusError = false
-        statusMessage = "Unlocked successfully!"
-        scope.launch {
-            delay(300)
-            onUnlocked()
-        }
+        if (challengePhase == LockChallengePhase.Success) return
+        challengePhase = LockChallengePhase.Success
     }
 
     Column(
@@ -246,11 +295,7 @@ fun AppLockScreen(
             )
 
             Text(
-                text = when (currentLockType) {
-                    "PATTERN" -> "Draw Pattern to Unlock"
-                    "PIN" -> "Enter PIN to Unlock"
-                    else -> "Enter Password to Unlock"
-                },
+                text = activeMethod.promptLabel,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -283,74 +328,79 @@ fun AppLockScreen(
             modifier = Modifier.weight(1f, fill = false),
             contentAlignment = Alignment.Center
         ) {
-            when (currentLockType) {
-                "PATTERN" -> {
+            when (activeMethod) {
+                AppLockMethod.PATTERN -> {
                     PatternLockView(
                         size = 280.dp,
                         state = lockState,
-                        enabled = (settings != null) && lockState != PatternState.SUCCESS,
+                        enabled = (settings != null) && challengePhase != LockChallengePhase.Success,
                         onPatternStarted = {
-                            if (lockState == PatternState.ERROR) {
-                                lockState = PatternState.NORMAL
-                                statusMessage = ""
+                            if (challengePhase is LockChallengePhase.Error) {
+                                challengePhase = LockChallengePhase.Ready
                             }
                         },
                         onPatternCompleted = { drawnPattern ->
                             val currentSettings = settings
                             if (currentSettings == null) {
-                                isStatusError = true
-                                statusMessage = "Loading security settings, please wait..."
+                                attemptSeq++
+                                challengePhase = LockChallengePhase.Error(
+                                    "Loading security settings, please wait...",
+                                    attemptSeq
+                                )
                                 return@PatternLockView
                             }
-                            val savedPattern = currentSettings.appLockPattern
-                            if (AppLockActivity.authenticatePattern(drawnPattern, savedPattern)) {
+                            if (AppLockActivity.authenticatePattern(drawnPattern, currentSettings.appLockPattern)) {
                                 handleSuccess()
                             } else {
-                                handleWrongAttempt("PATTERN")
+                                handleWrongAttempt(AppLockMethod.PATTERN)
                             }
                         },
                         onPatternTooShort = {
-                            statusMessage = "Connect at least 4 dots"
-                            isStatusError = true
+                            attemptSeq++
+                            challengePhase = LockChallengePhase.Error("Connect at least 4 dots", attemptSeq)
                         }
                     )
                 }
-                "PIN" -> {
+                AppLockMethod.PIN -> {
                     PinLockView(
                         pinLength = 4,
                         state = lockState,
                         onPinEntered = { enteredPin ->
                             val currentSettings = settings
                             if (currentSettings == null) {
-                                isStatusError = true
-                                statusMessage = "Loading security settings, please wait..."
+                                attemptSeq++
+                                challengePhase = LockChallengePhase.Error(
+                                    "Loading security settings, please wait...",
+                                    attemptSeq
+                                )
                                 return@PinLockView
                             }
-                            val savedPin = currentSettings.appLockPin
-                            if (AppLockActivity.authenticatePin(enteredPin, savedPin)) {
+                            if (AppLockActivity.authenticatePin(enteredPin, currentSettings.appLockPin)) {
                                 handleSuccess()
                             } else {
-                                handleWrongAttempt("PIN")
+                                handleWrongAttempt(AppLockMethod.PIN)
                             }
                         }
                     )
                 }
-                "PASSWORD" -> {
+                AppLockMethod.PASSWORD -> {
                     PasswordLockView(
                         state = lockState,
-                        enabled = (settings != null) && lockState != PatternState.SUCCESS,
+                        enabled = (settings != null) && challengePhase != LockChallengePhase.Success,
                         onPasswordEntered = { enteredPassword ->
                             val currentSettings = settings
                             if (currentSettings == null) {
-                                isStatusError = true
-                                statusMessage = "Loading security settings, please wait..."
+                                attemptSeq++
+                                challengePhase = LockChallengePhase.Error(
+                                    "Loading security settings, please wait...",
+                                    attemptSeq
+                                )
                                 return@PasswordLockView
                             }
-                            val savedPassword = currentSettings.appLockPassword
-                            if (AppLockActivity.authenticatePassword(enteredPassword, savedPassword)) {
+                            if (AppLockActivity.authenticatePassword(enteredPassword, currentSettings.appLockPassword)) {
                                 handleSuccess()
                             } else {
-                                handleWrongAttempt("PASSWORD")
+                                handleWrongAttempt(AppLockMethod.PASSWORD)
                             }
                         }
                     )
@@ -365,44 +415,38 @@ fun AppLockScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             val configuredTypes = remember(settings) {
-                val list = mutableListOf<String>()
-                if (!settings?.appLockPattern.isNullOrBlank()) list.add("PATTERN")
-                if (!settings?.appLockPin.isNullOrBlank()) list.add("PIN")
-                if (!settings?.appLockPassword.isNullOrBlank()) list.add("PASSWORD")
-                list
+                settings?.let { AppLockMethod.configuredMethods(it) } ?: emptyList()
             }
 
-            val otherTypes = configuredTypes.filter { it != currentLockType }
+            val otherTypes = configuredTypes.filter { it != activeMethod }
 
             if (otherTypes.isNotEmpty()) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    otherTypes.forEach { type ->
+                    otherTypes.forEach { method ->
                         TextButton(
                             onClick = {
-                                currentLockType = type
-                                lockState = PatternState.NORMAL
-                                statusMessage = ""
+                                if (challengePhase != LockChallengePhase.Success) {
+                                    methodManuallySelected = true
+                                    activeMethod = method
+                                    challengePhase = LockChallengePhase.Ready
+                                }
                             }
                         ) {
                             Icon(
-                                imageVector = when (type) {
-                                    "PATTERN" -> Icons.Default.Pattern
-                                    "PIN" -> Icons.Default.Pin
-                                    else -> Icons.Default.Password
+                                imageVector = when (method) {
+                                    AppLockMethod.PATTERN -> Icons.Default.Pattern
+                                    AppLockMethod.PIN -> Icons.Default.Pin
+                                    AppLockMethod.PASSWORD -> Icons.Default.Password
                                 },
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                text = when (type) {
-                                    "PATTERN" -> "Use Pattern"
-                                    "PIN" -> "Use PIN"
-                                    else -> "Use Password"
-                                },
+                                text = method.switchLabel,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }

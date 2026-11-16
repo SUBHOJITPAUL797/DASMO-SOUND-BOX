@@ -102,6 +102,23 @@ private val AmoledTextPrimary = Color(0xFFE5E7EB)
 private val AmoledTextMuted = Color(0xFF8B98A9)
 private val AmoledTextSubtle = Color(0xFF526071)
 
+private enum class KioskCenterMode {
+    LATEST_PAYMENT,
+    QR_COUNTER
+}
+
+private enum class KioskSpeechAction {
+    IDLE,
+    REPLAYING_PAYMENT,
+    SPEAKING_SUMMARY
+}
+
+private enum class KioskBatteryNoticeState {
+    PENDING_SETTINGS,
+    VISIBLE,
+    DISMISSED
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KioskScreen(
@@ -114,11 +131,12 @@ fun KioskScreen(
     val scope = rememberCoroutineScope()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    var isSpeaking by remember { mutableStateOf(false) }
-    var showQrCode by remember { mutableStateOf(false) }
+    var speechAction by remember { mutableStateOf(KioskSpeechAction.IDLE) }
+    var centerMode by remember { mutableStateOf(KioskCenterMode.LATEST_PAYMENT) }
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var currentTime by remember { mutableStateOf("") }
     var isBtConnected by remember { mutableStateOf(BluetoothHelper.isBluetoothAudioConnected(context)) }
+    val isSpeaking = speechAction != KioskSpeechAction.IDLE
 
     // Keep screen awake AND enforce light-on-black system bar icons while in AMOLED Kiosk mode
     DisposableEffect(view, isAppDarkTheme) {
@@ -160,14 +178,18 @@ fun KioskScreen(
             }
         } else {
             qrBitmap = null
-            showQrCode = false
+            centerMode = KioskCenterMode.LATEST_PAYMENT
         }
     }
 
     val latestTx = uiState.recentTransactions.firstOrNull { it.status == "ANNOUNCED" }
-    val showBatteryNotice = uiState.isLoaded && !uiState.appSettings.hasSeenKioskBatteryNotice
+    val batteryNoticeState = when {
+        !uiState.isLoaded -> KioskBatteryNoticeState.PENDING_SETTINGS
+        !uiState.appSettings.hasSeenKioskBatteryNotice -> KioskBatteryNoticeState.VISIBLE
+        else -> KioskBatteryNoticeState.DISMISSED
+    }
 
-    if (showBatteryNotice) {
+    if (batteryNoticeState == KioskBatteryNoticeState.VISIBLE) {
         KioskBatteryNoticeDialog(
             onDismiss = { viewModel.markKioskBatteryNoticeSeen() }
         )
@@ -256,13 +278,19 @@ fun KioskScreen(
 
                         if (uiState.appSettings.shopUpiId.isNotBlank()) {
                             IconButton(
-                                onClick = { showQrCode = !showQrCode },
+                                onClick = {
+                                    centerMode = if (centerMode == KioskCenterMode.QR_COUNTER) {
+                                        KioskCenterMode.LATEST_PAYMENT
+                                    } else {
+                                        KioskCenterMode.QR_COUNTER
+                                    }
+                                },
                                 modifier = Modifier.testTag("kiosk_qr_toggle_btn")
                             ) {
                                 Icon(
                                     Icons.Default.QrCode,
-                                    contentDescription = if (showQrCode) "Show Latest Payment" else "Show Shop QR",
-                                    tint = if (showQrCode) AmoledCyan else AmoledTextPrimary
+                                    contentDescription = if (centerMode == KioskCenterMode.QR_COUNTER) "Show Latest Payment" else "Show Shop QR",
+                                    tint = if (centerMode == KioskCenterMode.QR_COUNTER) AmoledCyan else AmoledTextPrimary
                                 )
                             }
                         }
@@ -336,7 +364,7 @@ fun KioskScreen(
                 contentAlignment = Alignment.Center
             ) {
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = showQrCode && qrBitmap != null,
+                    visible = centerMode == KioskCenterMode.QR_COUNTER && qrBitmap != null,
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
@@ -395,7 +423,7 @@ fun KioskScreen(
                 }
 
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = !showQrCode,
+                    visible = centerMode == KioskCenterMode.LATEST_PAYMENT,
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
@@ -572,13 +600,13 @@ fun KioskScreen(
                     val replayEnabled = latestTx != null && !isSpeaking
                     OutlinedButton(
                         onClick = {
-                            if (latestTx != null && !isSpeaking) {
+                            if (latestTx != null && speechAction == KioskSpeechAction.IDLE) {
                                 scope.launch {
-                                    isSpeaking = true
+                                    speechAction = KioskSpeechAction.REPLAYING_PAYMENT
                                     try {
                                         AnnouncementHelper.replayTransaction(context, latestTx)
                                     } finally {
-                                        isSpeaking = false
+                                        speechAction = KioskSpeechAction.IDLE
                                     }
                                 }
                             }
@@ -616,9 +644,9 @@ fun KioskScreen(
 
                     OutlinedButton(
                         onClick = {
-                            if (!isSpeaking) {
+                            if (speechAction == KioskSpeechAction.IDLE) {
                                 scope.launch {
-                                    isSpeaking = true
+                                    speechAction = KioskSpeechAction.SPEAKING_SUMMARY
                                     try {
                                         AnnouncementHelper.announceDaySummary(
                                             context,
@@ -626,7 +654,7 @@ fun KioskScreen(
                                             uiState.todayTotalAmount
                                         )
                                     } finally {
-                                        isSpeaking = false
+                                        speechAction = KioskSpeechAction.IDLE
                                     }
                                 }
                             }

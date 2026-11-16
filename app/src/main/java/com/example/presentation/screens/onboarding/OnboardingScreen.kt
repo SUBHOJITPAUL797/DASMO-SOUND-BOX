@@ -43,7 +43,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -74,13 +73,29 @@ import com.example.ui.theme.LocalIsDarkTheme
 import com.example.util.PermissionHelper
 import kotlinx.coroutines.launch
 
+enum class OnboardingStep(val order: Int) {
+    WELCOME(1),
+    NOTIFICATION_ACCESS(2),
+    BATTERY_OPTIMIZATION(3)
+}
+
 @Composable
 fun OnboardingScreen(onComplete: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var step by remember { mutableIntStateOf(1) }
+    var step by remember { mutableStateOf(OnboardingStep.WELCOME) }
+    var isCompleting by remember { mutableStateOf(false) }
     var hasNotifPermission by remember { mutableStateOf(PermissionHelper.isNotificationListenerEnabled(context)) }
     var hasBatteryPermission by remember { mutableStateOf(PermissionHelper.isIgnoringBatteryOptimizations(context)) }
+
+    fun completeOnboardingOnce() {
+        if (isCompleting) return
+        isCompleting = true
+        scope.launch {
+            AppModule.settingsRepository?.updateHasCompletedOnboarding(true)
+            onComplete()
+        }
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -89,14 +104,11 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                 hasNotifPermission = PermissionHelper.isNotificationListenerEnabled(context)
                 hasBatteryPermission = PermissionHelper.isIgnoringBatteryOptimizations(context)
 
-                if (step == 2 && hasNotifPermission) {
-                    step = 3
+                if (step == OnboardingStep.NOTIFICATION_ACCESS && hasNotifPermission) {
+                    step = OnboardingStep.BATTERY_OPTIMIZATION
                 }
-                if (step == 3 && hasBatteryPermission) {
-                    scope.launch {
-                        AppModule.settingsRepository?.updateHasCompletedOnboarding(true)
-                        onComplete()
-                    }
+                if (step == OnboardingStep.BATTERY_OPTIMIZATION && hasBatteryPermission) {
+                    completeOnboardingOnce()
                 }
             }
         }
@@ -129,8 +141,8 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                (1..3).forEach { index ->
-                    val active = index <= step
+                OnboardingStep.entries.forEach { candidate ->
+                    val active = candidate.order <= step.order
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -158,7 +170,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                 ) {
                     val isDark = LocalIsDarkTheme.current
                     when (currentStep) {
-                        1 -> {
+                        OnboardingStep.WELCOME -> {
                             Floating3DObjectBox(bobDistanceDp = 6f) {
                                 Surface(
                                     shape = RoundedCornerShape(32.dp),
@@ -191,7 +203,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        2 -> {
+                        OnboardingStep.NOTIFICATION_ACCESS -> {
                             ThreeDTactileCard(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 depthColor = BrandIndigo.copy(alpha = 0.35f),
@@ -240,7 +252,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                                 }
                             }
                         }
-                        3 -> {
+                        OnboardingStep.BATTERY_OPTIMIZATION -> {
                             ThreeDTactileCard(
                                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                 depthColor = BrandEmerald.copy(alpha = 0.35f),
@@ -284,9 +296,9 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 when (step) {
-                    1 -> {
+                    OnboardingStep.WELCOME -> {
                         ThreeDActionButton(
-                            onClick = { step = 2 },
+                            onClick = { step = OnboardingStep.NOTIFICATION_ACCESS },
                             modifier = Modifier.fillMaxWidth(),
                             height = 54.dp,
                             containerColor = BrandIndigo,
@@ -297,10 +309,10 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White)
                         }
                     }
-                    2 -> {
+                    OnboardingStep.NOTIFICATION_ACCESS -> {
                         if (hasNotifPermission) {
                             ThreeDActionButton(
-                                onClick = { step = 3 },
+                                onClick = { step = OnboardingStep.BATTERY_OPTIMIZATION },
                                 modifier = Modifier.fillMaxWidth(),
                                 height = 54.dp,
                                 containerColor = BrandEmerald,
@@ -330,15 +342,11 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                             }
                         }
                     }
-                    3 -> {
+                    OnboardingStep.BATTERY_OPTIMIZATION -> {
                         if (hasBatteryPermission) {
                             ThreeDActionButton(
-                                onClick = {
-                                    scope.launch {
-                                        AppModule.settingsRepository?.updateHasCompletedOnboarding(true)
-                                        onComplete()
-                                    }
-                                },
+                                onClick = { completeOnboardingOnce() },
+                                enabled = !isCompleting,
                                 modifier = Modifier.fillMaxWidth(),
                                 height = 54.dp,
                                 containerColor = BrandEmerald,
@@ -366,12 +374,10 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                             ) {
                                 Text("Allow Background Mode", fontWeight = FontWeight.Bold, color = Color.White)
                             }
-                            TextButton(onClick = {
-                                scope.launch {
-                                    AppModule.settingsRepository?.updateHasCompletedOnboarding(true)
-                                    onComplete()
-                                }
-                            }) {
+                            TextButton(
+                                onClick = { completeOnboardingOnce() },
+                                enabled = !isCompleting
+                            ) {
                                 Text("Skip for now")
                             }
                         }

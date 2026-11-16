@@ -15,6 +15,15 @@ import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.sin
 
+enum class ChimeEngineState {
+    UNINITIALIZED,
+    INITIALIZING,
+    PARTIALLY_LOADED,
+    READY,
+    FAILED,
+    RELEASED
+}
+
 object ChimePlayer {
 
     private const val TAG = "ChimePlayer"
@@ -33,6 +42,10 @@ object ChimePlayer {
     @Volatile private var soundPool: SoundPool? = null
     @Volatile private var isInitialized = false
 
+    @Volatile
+    var engineState: ChimeEngineState = ChimeEngineState.UNINITIALIZED
+        private set
+
     @Volatile var isLoaded = false
         private set
 
@@ -42,9 +55,18 @@ object ChimePlayer {
     @Volatile var lastPlaybackFallback: Boolean = false
         internal set
 
+    private fun updateEngineStateLocked(newState: ChimeEngineState) {
+        engineState = newState
+        isLoaded = (newState == ChimeEngineState.READY)
+        isInitialized = (newState == ChimeEngineState.INITIALIZING ||
+            newState == ChimeEngineState.PARTIALLY_LOADED ||
+            newState == ChimeEngineState.READY)
+    }
+
     @Synchronized
     fun init(context: Context) {
         if (isInitialized && soundPool != null) return
+        updateEngineStateLocked(ChimeEngineState.INITIALIZING)
 
         try {
             val attrs = AudioAttributes.Builder()
@@ -63,7 +85,9 @@ object ChimePlayer {
                     loadedSoundIds.add(sampleId)
                     val targetCount = soundMap.size
                     if (targetCount > 0 && loadedSoundIds.size >= targetCount) {
-                        isLoaded = true
+                        updateEngineStateLocked(ChimeEngineState.READY)
+                    } else if (loadedSoundIds.isNotEmpty()) {
+                        updateEngineStateLocked(ChimeEngineState.PARTIALLY_LOADED)
                     }
                     Log.d(TAG, "SoundPool sample $sampleId loaded successfully")
                 } else {
@@ -100,9 +124,14 @@ object ChimePlayer {
             val synthId = pool.load(synthFile.absolutePath, 1)
             if (synthId > 0) soundMap["SYNTH_UPBEAT"] = synthId
 
-            isInitialized = true
+            if (soundMap.isEmpty()) {
+                updateEngineStateLocked(ChimeEngineState.FAILED)
+            } else {
+                isInitialized = true
+            }
         } catch (e: Throwable) {
             Log.w(TAG, "SoundPool initialization fallback: ${e.message}")
+            updateEngineStateLocked(ChimeEngineState.FAILED)
         }
     }
 
@@ -144,7 +173,7 @@ object ChimePlayer {
                 lastPlaybackFallback = false
                 return true
             } else {
-                Log.d(TAG, "SoundPool play returned stream 0 for $styleKey (loaded=${soundId != null && loadedSoundIds.contains(soundId)}), falling back to system default")
+                Log.d(TAG, "SoundPool play returned stream 0 for $styleKey (state=$engineState, loaded=${soundId != null && loadedSoundIds.contains(soundId)}), falling back to system default")
                 lastPlaybackFallback = true
                 playSystemDefault(context)
                 return false
@@ -167,7 +196,9 @@ object ChimePlayer {
     fun notifySoundLoadedForTesting(soundId: Int) {
         loadedSoundIds.add(soundId)
         if (soundMap.isNotEmpty() && loadedSoundIds.size >= soundMap.size) {
-            isLoaded = true
+            updateEngineStateLocked(ChimeEngineState.READY)
+        } else if (loadedSoundIds.isNotEmpty()) {
+            updateEngineStateLocked(ChimeEngineState.PARTIALLY_LOADED)
         }
     }
 
@@ -192,8 +223,7 @@ object ChimePlayer {
             soundPool = null
             soundMap.clear()
             loadedSoundIds.clear()
-            isInitialized = false
-            isLoaded = false
+            updateEngineStateLocked(ChimeEngineState.RELEASED)
             lastPlaybackStreamId = -1
             lastPlaybackFallback = false
         }

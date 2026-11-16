@@ -59,6 +59,38 @@ data class InstalledAppItem(
     val isPaymentApp: Boolean
 )
 
+data class AppLockSetupRequest(
+    val method: AppLockMethod,
+    val enableLockOnConfirm: Boolean = false
+)
+
+private sealed interface SecretSetupPhase {
+    val message: String
+    val patternState: PatternState
+    val isError: Boolean
+
+    data class EnterFirst(
+        override val message: String,
+        override val patternState: PatternState = PatternState.NORMAL,
+        override val isError: Boolean = false
+    ) : SecretSetupPhase
+
+    data class ConfirmSecond(
+        val firstSecret: String,
+        override val message: String,
+        override val patternState: PatternState = PatternState.NORMAL,
+        override val isError: Boolean = false
+    ) : SecretSetupPhase
+
+    data class Confirmed(
+        val finalSecret: String,
+        override val message: String
+    ) : SecretSetupPhase {
+        override val patternState: PatternState = PatternState.SUCCESS
+        override val isError: Boolean = false
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppLockSettingsScreen(
@@ -103,10 +135,7 @@ fun AppLockSettingsScreen(
         hasCameraPerm = isGranted
     }
 
-    var showPatternSetupDialog by remember { mutableStateOf(false) }
-    var showPinSetupDialog by remember { mutableStateOf(false) }
-    var showPasswordSetupDialog by remember { mutableStateOf(false) }
-    var pendingEnableAfterSetup by remember { mutableStateOf(false) }
+    var activeSetupRequest by remember { mutableStateOf<AppLockSetupRequest?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var installedApps by remember { mutableStateOf<List<InstalledAppItem>>(emptyList()) }
     var isLoadingApps by remember { mutableStateOf(true) }
@@ -211,24 +240,18 @@ fun AppLockSettingsScreen(
                             onCheckedChange = { enabled ->
                                 scope.launch {
                                     if (!enabled) {
-                                        pendingEnableAfterSetup = false
+                                        activeSetupRequest = null
                                         settingsRepo?.updateAppLockEnabled(false)
                                     } else {
-                                        val hasCredentials = !settings?.appLockPattern.isNullOrBlank() ||
-                                            !settings?.appLockPin.isNullOrBlank() ||
-                                            !settings?.appLockPassword.isNullOrBlank()
+                                        val hasCredentials = settings?.let { AppLockManager.hasConfiguredCredentials(it) } == true
                                         if (hasCredentials) {
                                             settingsRepo?.updateAppLockEnabled(true)
                                             com.example.service.SoundBoxForegroundService.start(context)
                                         } else {
-                                            // Defer enabling App Lock until user finishes setting their chosen lock type
-                                            pendingEnableAfterSetup = true
-                                            val currentType = settings?.appLockType ?: "PATTERN"
-                                            when (currentType) {
-                                                "PIN" -> showPinSetupDialog = true
-                                                "PASSWORD" -> showPasswordSetupDialog = true
-                                                else -> showPatternSetupDialog = true
-                                            }
+                                            activeSetupRequest = AppLockSetupRequest(
+                                                method = AppLockMethod.fromKey(settings?.appLockType),
+                                                enableLockOnConfirm = true
+                                            )
                                         }
                                     }
                                 }
@@ -366,11 +389,7 @@ fun AppLockSettingsScreen(
 
                         OutlinedButton(
                             onClick = {
-                                when (currentType) {
-                                    "PIN" -> showPinSetupDialog = true
-                                    "PASSWORD" -> showPasswordSetupDialog = true
-                                    else -> showPatternSetupDialog = true
-                                }
+                                activeSetupRequest = AppLockSetupRequest(method = AppLockMethod.fromKey(currentType))
                             },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
@@ -403,7 +422,7 @@ fun AppLockSettingsScreen(
                             )
                             if (currentType != "PATTERN") {
                                 TextButton(
-                                    onClick = { showPatternSetupDialog = true },
+                                    onClick = { activeSetupRequest = AppLockSetupRequest(AppLockMethod.PATTERN) },
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                                 ) {
                                     Text("Pattern", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -411,7 +430,7 @@ fun AppLockSettingsScreen(
                             }
                             if (currentType != "PIN") {
                                 TextButton(
-                                    onClick = { showPinSetupDialog = true },
+                                    onClick = { activeSetupRequest = AppLockSetupRequest(AppLockMethod.PIN) },
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                                 ) {
                                     Text("PIN", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -419,7 +438,7 @@ fun AppLockSettingsScreen(
                             }
                             if (currentType != "PASSWORD") {
                                 TextButton(
-                                    onClick = { showPasswordSetupDialog = true },
+                                    onClick = { activeSetupRequest = AppLockSetupRequest(AppLockMethod.PASSWORD) },
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                                 ) {
                                     Text("Password", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -775,70 +794,38 @@ fun AppLockSettingsScreen(
             }
         }
 
-        // Pattern Setup Dialog (Draw twice to confirm)
-        if (showPatternSetupDialog) {
-            PatternSetupDialog(
-                onDismiss = {
-                    showPatternSetupDialog = false
-                    pendingEnableAfterSetup = false
-                },
-                onPatternConfirmed = { pattern ->
-                    scope.launch {
-                        settingsRepo?.updateAppLockPattern(pattern)
-                        settingsRepo?.updateAppLockType("PATTERN")
-                        if (pendingEnableAfterSetup) {
-                            settingsRepo?.updateAppLockEnabled(true)
-                            com.example.service.SoundBoxForegroundService.start(context)
-                            pendingEnableAfterSetup = false
-                        }
-                        showPatternSetupDialog = false
+        // Credential Setup Dialog driven by single AppLockSetupRequest state machine
+        activeSetupRequest?.let { request ->
+            val handleCredentialConfirmed: (String) -> Unit = { secret ->
+                scope.launch {
+                    when (request.method) {
+                        AppLockMethod.PATTERN -> settingsRepo?.updateAppLockPattern(secret)
+                        AppLockMethod.PIN -> settingsRepo?.updateAppLockPin(secret)
+                        AppLockMethod.PASSWORD -> settingsRepo?.updateAppLockPassword(secret)
                     }
+                    settingsRepo?.updateAppLockType(request.method.serializedKey)
+                    if (request.enableLockOnConfirm) {
+                        settingsRepo?.updateAppLockEnabled(true)
+                        com.example.service.SoundBoxForegroundService.start(context)
+                    }
+                    activeSetupRequest = null
                 }
-            )
-        }
+            }
 
-        // PIN Setup Dialog (Enter twice to confirm)
-        if (showPinSetupDialog) {
-            PinSetupDialog(
-                onDismiss = {
-                    showPinSetupDialog = false
-                    pendingEnableAfterSetup = false
-                },
-                onPinConfirmed = { pin ->
-                    scope.launch {
-                        settingsRepo?.updateAppLockPin(pin)
-                        settingsRepo?.updateAppLockType("PIN")
-                        if (pendingEnableAfterSetup) {
-                            settingsRepo?.updateAppLockEnabled(true)
-                            com.example.service.SoundBoxForegroundService.start(context)
-                            pendingEnableAfterSetup = false
-                        }
-                        showPinSetupDialog = false
-                    }
-                }
-            )
-        }
-
-        // Password Setup Dialog (Enter twice to confirm)
-        if (showPasswordSetupDialog) {
-            PasswordSetupDialog(
-                onDismiss = {
-                    showPasswordSetupDialog = false
-                    pendingEnableAfterSetup = false
-                },
-                onPasswordConfirmed = { password ->
-                    scope.launch {
-                        settingsRepo?.updateAppLockPassword(password)
-                        settingsRepo?.updateAppLockType("PASSWORD")
-                        if (pendingEnableAfterSetup) {
-                            settingsRepo?.updateAppLockEnabled(true)
-                            com.example.service.SoundBoxForegroundService.start(context)
-                            pendingEnableAfterSetup = false
-                        }
-                        showPasswordSetupDialog = false
-                    }
-                }
-            )
+            when (request.method) {
+                AppLockMethod.PATTERN -> PatternSetupDialog(
+                    onDismiss = { activeSetupRequest = null },
+                    onPatternConfirmed = handleCredentialConfirmed
+                )
+                AppLockMethod.PIN -> PinSetupDialog(
+                    onDismiss = { activeSetupRequest = null },
+                    onPinConfirmed = handleCredentialConfirmed
+                )
+                AppLockMethod.PASSWORD -> PasswordSetupDialog(
+                    onDismiss = { activeSetupRequest = null },
+                    onPasswordConfirmed = handleCredentialConfirmed
+                )
+            }
         }
     }
 }
@@ -877,11 +864,10 @@ fun PatternSetupDialog(
     onDismiss: () -> Unit,
     onPatternConfirmed: (String) -> Unit
 ) {
-    var step by remember { mutableIntStateOf(1) } // 1 = Draw, 2 = Confirm
-    var firstPattern by remember { mutableStateOf("") }
-    var patternState by remember { mutableStateOf(PatternState.NORMAL) }
-    var message by remember { mutableStateOf("Draw a pattern (connect at least 4 dots)") }
-    var isError by remember { mutableStateOf(false) }
+    val initialPrompt = "Draw a pattern (connect at least 4 dots)"
+    var setupPhase by remember {
+        mutableStateOf<SecretSetupPhase>(SecretSetupPhase.EnterFirst(initialPrompt))
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -896,46 +882,70 @@ fun PatternSetupDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = if (step == 1) "Set Unlock Pattern" else "Confirm Your Pattern",
+                    text = if (setupPhase is SecretSetupPhase.EnterFirst) "Set Unlock Pattern" else "Confirm Your Pattern",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    text = message,
+                    text = setupPhase.message,
                     fontSize = 13.sp,
-                    color = if (isError) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (setupPhase.isError) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
 
                 PatternLockView(
                     size = 260.dp,
-                    state = patternState,
+                    state = setupPhase.patternState,
+                    enabled = setupPhase !is SecretSetupPhase.Confirmed,
                     onPatternStarted = {
-                        patternState = PatternState.NORMAL
-                        isError = false
+                        setupPhase = when (val phase = setupPhase) {
+                            is SecretSetupPhase.EnterFirst -> phase.copy(
+                                patternState = PatternState.NORMAL,
+                                isError = false
+                            )
+                            is SecretSetupPhase.ConfirmSecond -> phase.copy(
+                                patternState = PatternState.NORMAL,
+                                isError = false
+                            )
+                            is SecretSetupPhase.Confirmed -> phase
+                        }
                     },
                     onPatternCompleted = { pattern ->
-                        if (step == 1) {
-                            firstPattern = pattern
-                            step = 2
-                            message = "Draw the pattern again to confirm"
-                            patternState = PatternState.NORMAL
-                        } else {
-                            if (pattern == firstPattern) {
-                                patternState = PatternState.SUCCESS
-                                message = "Pattern confirmed!"
-                                onPatternConfirmed(pattern)
-                            } else {
-                                patternState = PatternState.ERROR
-                                isError = true
-                                message = "Patterns do not match. Try again."
+                        when (val phase = setupPhase) {
+                            is SecretSetupPhase.EnterFirst -> {
+                                setupPhase = SecretSetupPhase.ConfirmSecond(
+                                    firstSecret = pattern,
+                                    message = "Draw the pattern again to confirm"
+                                )
                             }
+                            is SecretSetupPhase.ConfirmSecond -> {
+                                if (pattern == phase.firstSecret) {
+                                    setupPhase = SecretSetupPhase.Confirmed(pattern, "Pattern confirmed!")
+                                    onPatternConfirmed(pattern)
+                                } else {
+                                    setupPhase = phase.copy(
+                                        patternState = PatternState.ERROR,
+                                        isError = true,
+                                        message = "Patterns do not match. Try again."
+                                    )
+                                }
+                            }
+                            is SecretSetupPhase.Confirmed -> Unit
                         }
                     },
                     onPatternTooShort = {
-                        isError = true
-                        message = "Connect at least 4 dots"
+                        setupPhase = when (val phase = setupPhase) {
+                            is SecretSetupPhase.EnterFirst -> phase.copy(
+                                isError = true,
+                                message = "Connect at least 4 dots"
+                            )
+                            is SecretSetupPhase.ConfirmSecond -> phase.copy(
+                                isError = true,
+                                message = "Connect at least 4 dots"
+                            )
+                            is SecretSetupPhase.Confirmed -> phase
+                        }
                     }
                 )
 
@@ -946,13 +956,9 @@ fun PatternSetupDialog(
                     TextButton(onClick = onDismiss) {
                         Text("Cancel")
                     }
-                    if (step == 2) {
+                    if (setupPhase is SecretSetupPhase.ConfirmSecond) {
                         TextButton(onClick = {
-                            step = 1
-                            firstPattern = ""
-                            message = "Draw a pattern (connect at least 4 dots)"
-                            patternState = PatternState.NORMAL
-                            isError = false
+                            setupPhase = SecretSetupPhase.EnterFirst(initialPrompt)
                         }) {
                             Text("Reset")
                         }
@@ -968,11 +974,10 @@ fun PinSetupDialog(
     onDismiss: () -> Unit,
     onPinConfirmed: (String) -> Unit
 ) {
-    var step by remember { mutableIntStateOf(1) } // 1 = Enter PIN, 2 = Confirm PIN
-    var firstPin by remember { mutableStateOf("") }
-    var pinState by remember { mutableStateOf(PatternState.NORMAL) }
-    var message by remember { mutableStateOf("Enter a 4-digit PIN") }
-    var isError by remember { mutableStateOf(false) }
+    val initialPrompt = "Enter a 4-digit PIN"
+    var setupPhase by remember {
+        mutableStateOf<SecretSetupPhase>(SecretSetupPhase.EnterFirst(initialPrompt))
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -987,37 +992,42 @@ fun PinSetupDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = if (step == 1) "Set 4-Digit PIN" else "Confirm Your PIN",
+                    text = if (setupPhase is SecretSetupPhase.EnterFirst) "Set 4-Digit PIN" else "Confirm Your PIN",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    text = message,
+                    text = setupPhase.message,
                     fontSize = 13.sp,
-                    color = if (isError) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (setupPhase.isError) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
 
                 PinLockView(
                     pinLength = 4,
-                    state = pinState,
+                    state = setupPhase.patternState,
                     onPinEntered = { pin ->
-                        if (step == 1) {
-                            firstPin = pin
-                            step = 2
-                            message = "Enter the 4-digit PIN again to confirm"
-                            pinState = PatternState.NORMAL
-                        } else {
-                            if (pin == firstPin) {
-                                pinState = PatternState.SUCCESS
-                                message = "PIN confirmed!"
-                                onPinConfirmed(pin)
-                            } else {
-                                pinState = PatternState.ERROR
-                                isError = true
-                                message = "PINs do not match. Try again."
+                        when (val phase = setupPhase) {
+                            is SecretSetupPhase.EnterFirst -> {
+                                setupPhase = SecretSetupPhase.ConfirmSecond(
+                                    firstSecret = pin,
+                                    message = "Enter the 4-digit PIN again to confirm"
+                                )
                             }
+                            is SecretSetupPhase.ConfirmSecond -> {
+                                if (pin == phase.firstSecret) {
+                                    setupPhase = SecretSetupPhase.Confirmed(pin, "PIN confirmed!")
+                                    onPinConfirmed(pin)
+                                } else {
+                                    setupPhase = phase.copy(
+                                        patternState = PatternState.ERROR,
+                                        isError = true,
+                                        message = "PINs do not match. Try again."
+                                    )
+                                }
+                            }
+                            is SecretSetupPhase.Confirmed -> Unit
                         }
                     }
                 )
@@ -1029,13 +1039,9 @@ fun PinSetupDialog(
                     TextButton(onClick = onDismiss) {
                         Text("Cancel")
                     }
-                    if (step == 2) {
+                    if (setupPhase is SecretSetupPhase.ConfirmSecond) {
                         TextButton(onClick = {
-                            step = 1
-                            firstPin = ""
-                            message = "Enter a 4-digit PIN"
-                            pinState = PatternState.NORMAL
-                            isError = false
+                            setupPhase = SecretSetupPhase.EnterFirst(initialPrompt)
                         }) {
                             Text("Reset")
                         }
@@ -1072,11 +1078,12 @@ fun PasswordSetupDialog(
     onDismiss: () -> Unit,
     onPasswordConfirmed: (String) -> Unit
 ) {
-    var step by remember { mutableIntStateOf(1) } // 1 = Enter Password, 2 = Confirm Password
-    var firstPassword by remember { mutableStateOf("") }
-    var passwordState by remember { mutableStateOf(PatternState.NORMAL) }
-    var message by remember { mutableStateOf("Enter a password (at least 4 characters)") }
-    var isError by remember { mutableStateOf(false) }
+    val initialPrompt = "Enter a password (at least 4 characters)"
+    val confirmPrompt = "Enter the password again to confirm"
+    var setupPhase by remember {
+        mutableStateOf<SecretSetupPhase>(SecretSetupPhase.EnterFirst(initialPrompt))
+    }
+    val isConfirmStep = setupPhase is SecretSetupPhase.ConfirmSecond
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -1091,56 +1098,75 @@ fun PasswordSetupDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = if (step == 1) "Set Unlock Password" else "Confirm Your Password",
+                    text = if (setupPhase is SecretSetupPhase.EnterFirst) "Set Unlock Password" else "Confirm Your Password",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    text = message,
+                    text = setupPhase.message,
                     fontSize = 13.sp,
-                    color = if (isError) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (setupPhase.isError) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
 
-                PasswordLockView(
-                    state = passwordState,
-                    label = if (step == 1) "New Password" else "Confirm Password",
-                    placeholder = if (step == 1) "Enter password" else "Re-enter password",
-                    buttonText = if (step == 1) "Next" else "Confirm",
-                    onPasswordChanged = {
-                        if (isError) {
-                            isError = false
-                            passwordState = PatternState.NORMAL
-                            message = if (step == 1) "Enter a password (at least 4 characters)" else "Enter the password again to confirm"
-                        }
-                    },
-                    onPasswordEntered = { enteredPassword ->
-                        if (step == 1) {
-                            if (enteredPassword.length < 4) {
-                                passwordState = PatternState.ERROR
-                                isError = true
-                                message = "Password must be at least 4 characters"
-                            } else {
-                                firstPassword = enteredPassword
-                                step = 2
-                                message = "Enter the password again to confirm"
-                                passwordState = PatternState.NORMAL
-                                isError = false
+                // Keyed by stage so advancing from EnterFirst to ConfirmSecond cleanly clears the input field
+                key(isConfirmStep) {
+                    PasswordLockView(
+                        state = setupPhase.patternState,
+                        enabled = setupPhase !is SecretSetupPhase.Confirmed,
+                        label = if (!isConfirmStep) "New Password" else "Confirm Password",
+                        placeholder = if (!isConfirmStep) "Enter password" else "Re-enter password",
+                        buttonText = if (!isConfirmStep) "Next" else "Confirm",
+                        onPasswordChanged = {
+                            if (setupPhase.isError) {
+                                setupPhase = when (val phase = setupPhase) {
+                                    is SecretSetupPhase.EnterFirst -> SecretSetupPhase.EnterFirst(initialPrompt)
+                                    is SecretSetupPhase.ConfirmSecond -> phase.copy(
+                                        message = confirmPrompt,
+                                        patternState = PatternState.NORMAL,
+                                        isError = false
+                                    )
+                                    is SecretSetupPhase.Confirmed -> phase
+                                }
                             }
-                        } else {
-                            if (enteredPassword == firstPassword) {
-                                passwordState = PatternState.SUCCESS
-                                message = "Password confirmed!"
-                                onPasswordConfirmed(enteredPassword)
-                            } else {
-                                passwordState = PatternState.ERROR
-                                isError = true
-                                message = "Passwords do not match. Try again."
+                        },
+                        onPasswordEntered = { enteredPassword ->
+                            when (val phase = setupPhase) {
+                                is SecretSetupPhase.EnterFirst -> {
+                                    if (enteredPassword.length < 4) {
+                                        setupPhase = phase.copy(
+                                            patternState = PatternState.ERROR,
+                                            isError = true,
+                                            message = "Password must be at least 4 characters"
+                                        )
+                                    } else {
+                                        setupPhase = SecretSetupPhase.ConfirmSecond(
+                                            firstSecret = enteredPassword,
+                                            message = confirmPrompt
+                                        )
+                                    }
+                                }
+                                is SecretSetupPhase.ConfirmSecond -> {
+                                    if (enteredPassword == phase.firstSecret) {
+                                        setupPhase = SecretSetupPhase.Confirmed(
+                                            finalSecret = enteredPassword,
+                                            message = "Password confirmed!"
+                                        )
+                                        onPasswordConfirmed(enteredPassword)
+                                    } else {
+                                        setupPhase = phase.copy(
+                                            patternState = PatternState.ERROR,
+                                            isError = true,
+                                            message = "Passwords do not match. Try again."
+                                        )
+                                    }
+                                }
+                                is SecretSetupPhase.Confirmed -> Unit
                             }
                         }
-                    }
-                )
+                    )
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1149,13 +1175,9 @@ fun PasswordSetupDialog(
                     TextButton(onClick = onDismiss) {
                         Text("Cancel")
                     }
-                    if (step == 2) {
+                    if (isConfirmStep) {
                         TextButton(onClick = {
-                            step = 1
-                            firstPassword = ""
-                            message = "Enter a password (at least 4 characters)"
-                            passwordState = PatternState.NORMAL
-                            isError = false
+                            setupPhase = SecretSetupPhase.EnterFirst(initialPrompt)
                         }) {
                             Text("Reset")
                         }
