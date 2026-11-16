@@ -361,6 +361,10 @@ class MockPaymentInjectionHarness {
             return if (record.expiresAt > now) record else null
         }
 
+        override suspend fun getValidRecordsByAmount(amount: Double, now: Long): List<DedupEntity> {
+            return records.values.filter { it.amount == amount && it.expiresAt > now }
+        }
+
         override suspend fun insertRecord(record: DedupEntity) {
             records[record.dedupKey] = record
         }

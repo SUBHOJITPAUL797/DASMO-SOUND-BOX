@@ -26,6 +26,14 @@ class PaymentNotificationListener : NotificationListenerService() {
         var isConnected: Boolean = false
             private set
 
+        private val recentNotificationSignatures = java.util.Collections.synchronizedMap(
+            object : LinkedHashMap<String, Long>(100, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
+                    return size > 250
+                }
+            }
+        )
+
         fun rebindIfDisconnected(context: android.content.Context) {
             if (isConnected) return
             val componentName = ComponentName(context, PaymentNotificationListener::class.java)
@@ -109,104 +117,96 @@ class PaymentNotificationListener : NotificationListenerService() {
                     ?.joinToString(" ") { it.toString().trim() } ?: ""
 
                 // Extract MessagingStyle messages (Crucial for Google Pay and chat-style UPI notifications)
-                val messagingTexts = mutableListOf<String>()
-                var messagingSender: String? = null
-
-                fun processMessageBundle(bundle: android.os.Bundle) {
-                    val msgText = bundle.getCharSequence("text")?.toString()?.trim()
-                    if (!msgText.isNullOrBlank()) {
-                        messagingTexts.add(msgText)
-                    }
-                    val sender = bundle.getCharSequence("sender")?.toString()?.trim()
-                    if (!sender.isNullOrBlank() && messagingSender == null) {
-                        messagingSender = sender
-                    }
-                }
-
                 val messagesRaw = extras.get("android.messages")
+                val messageBundles = mutableListOf<android.os.Bundle>()
                 if (messagesRaw is Array<*>) {
                     for (item in messagesRaw) {
-                        if (item is android.os.Bundle) {
-                            processMessageBundle(item)
-                        }
+                        if (item is android.os.Bundle) messageBundles.add(item)
                     }
                 } else if (messagesRaw is List<*>) {
                     for (item in messagesRaw) {
-                        if (item is android.os.Bundle) {
-                            processMessageBundle(item)
-                        }
+                        if (item is android.os.Bundle) messageBundles.add(item)
                     }
                 }
 
-                val historicMessagesRaw = extras.get("android.messages.historic")
-                if (historicMessagesRaw is Array<*>) {
-                    for (item in historicMessagesRaw) {
-                        if (item is android.os.Bundle) {
-                            processMessageBundle(item)
-                        }
+                // If this is a MessagingStyle notification (e.g. Google Pay, WhatsApp Pay),
+                // evaluate ONLY the latest incoming message that triggered this alert.
+                // Never parse android.messages.historic or concatenate old conversation history,
+                // which causes previous payments to be re-announced on subsequent messages.
+                val (result, candidateFullText) = if (messageBundles.isNotEmpty()) {
+                    val latestBundle = messageBundles.last()
+                    val latestMsgText = latestBundle.getCharSequence("text")?.toString()?.trim() ?: ""
+                    val latestMsgSender = latestBundle.getCharSequence("sender")?.toString()?.trim()
+                    val fallbackTitle = when {
+                        !latestMsgSender.isNullOrBlank() -> latestMsgSender
+                        conversationTitle.isNotBlank() -> conversationTitle
+                        title.isNotBlank() -> title
+                        bigTitle.isNotBlank() -> bigTitle
+                        else -> null
                     }
-                } else if (historicMessagesRaw is List<*>) {
-                    for (item in historicMessagesRaw) {
-                        if (item is android.os.Bundle) {
-                            processMessageBundle(item)
-                        }
+
+                    val candidate = if (!fallbackTitle.isNullOrBlank() && !latestMsgText.contains(fallbackTitle, ignoreCase = true)) {
+                        "$fallbackTitle $latestMsgText"
+                    } else {
+                        latestMsgText
                     }
+
+                    var parseRes = PaymentParser.parse(
+                        text = candidate,
+                        fallbackTitle = fallbackTitle,
+                        packageName = packageName
+                    )
+
+                    if (parseRes.amount == null || !parseRes.isCredit) {
+                        val candidateWithContext = listOf(title, bigTitle, latestMsgSender ?: "", latestMsgText, text)
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                            .joinToString(" ")
+                        parseRes = PaymentParser.parse(
+                            text = candidateWithContext,
+                            fallbackTitle = fallbackTitle,
+                            packageName = packageName
+                        )
+                    }
+
+                    Pair(parseRes, candidate)
+                } else {
+                    // Standard notification (PhonePe, Paytm, BHIM, Bank notifications)
+                    val allParts = listOf(
+                        title, bigTitle, conversationTitle,
+                        text, bigText, subText, summaryText, infoText, tickerText, textLines
+                    ).filter { it.isNotBlank() }
+
+                    val fullText = allParts.distinct().joinToString(" ").trim()
+                    val fallbackTitle = when {
+                        conversationTitle.isNotBlank() -> conversationTitle
+                        title.isNotBlank() -> title
+                        bigTitle.isNotBlank() -> bigTitle
+                        else -> null
+                    }
+
+                    val parseRes = PaymentParser.parse(
+                        text = fullText,
+                        fallbackTitle = fallbackTitle,
+                        packageName = packageName
+                    )
+                    Pair(parseRes, fullText)
                 }
 
-                // Gather any additional user-visible CharSequences in bundle keys (skip internal system metadata)
-                val ignoredMetadataKeys = setOf(
-                    Notification.EXTRA_TITLE,
-                    Notification.EXTRA_TITLE_BIG,
-                    Notification.EXTRA_TEXT,
-                    Notification.EXTRA_BIG_TEXT,
-                    Notification.EXTRA_SUB_TEXT,
-                    Notification.EXTRA_SUMMARY_TEXT,
-                    Notification.EXTRA_INFO_TEXT,
-                    Notification.EXTRA_TEXT_LINES,
-                    Notification.EXTRA_TEMPLATE,
-                    "android.conversationTitle",
-                    "android.selfDisplayName",
-                    "android.people",
-                    "android.people.list"
-                )
-                val extraTokens = mutableListOf<String>()
-                for (key in extras.keySet()) {
-                    if (key.startsWith("android.messages") || ignoredMetadataKeys.contains(key)) continue
-                    when (val obj = extras.get(key)) {
-                        is CharSequence -> {
-                            val str = obj.toString().trim()
-                            if (str.isNotBlank() && str.length < 300) {
-                                extraTokens.add(str)
-                            }
-                        }
-                    }
-                }
+                if (!KnownPaymentApps.shouldProcessNotification(packageName, candidateFullText)) return@launch
 
-                val allParts = listOf(
-                    title, bigTitle, conversationTitle, messagingSender ?: "",
-                    messagingTexts.joinToString(" "),
-                    text, bigText, subText, summaryText, infoText, tickerText, textLines,
-                    extraTokens.joinToString(" ")
-                ).filter { it.isNotBlank() }
-
-                val fullText = allParts.distinct().joinToString(" ").trim()
-                
-                if (!KnownPaymentApps.shouldProcessNotification(packageName, fullText)) return@launch
-
-                val fallbackTitle = when {
-                    !messagingSender.isNullOrBlank() -> messagingSender
-                    conversationTitle.isNotBlank() -> conversationTitle
-                    title.isNotBlank() -> title
-                    bigTitle.isNotBlank() -> bigTitle
-                    else -> null
-                }
-                
-                val result = PaymentParser.parse(
-                    text = fullText,
-                    fallbackTitle = fallbackTitle,
-                    packageName = packageName
-                )
                 if (result.amount != null && result.isCredit) {
+                    // Fast gate: Deduplicate identical notification updates from Android OS within 45 seconds
+                    val notifSignature = "${packageName}_${sbn.id}_${sbn.tag}_${result.amount}_${result.payerName ?: ""}_${result.refId ?: ""}"
+                    val now = System.currentTimeMillis()
+                    synchronized(recentNotificationSignatures) {
+                        recentNotificationSignatures.entries.removeIf { now - it.value > 45000L }
+                        if (recentNotificationSignatures.containsKey(notifSignature)) {
+                            Log.d(TAG, "Duplicate notification signature skipped: $notifSignature")
+                            return@launch
+                        }
+                        recentNotificationSignatures[notifSignature] = now
+                    }
                     val appName = KnownPaymentApps.packageNames[packageName] ?: run {
                         try {
                             val appInfo = packageManager.getApplicationInfo(packageName, 0)
@@ -234,7 +234,7 @@ class PaymentNotificationListener : NotificationListenerService() {
                         sourceAppName = appName,
                         payerName = result.payerName,
                         refId = result.refId,
-                        rawText = fullText
+                        rawText = candidateFullText
                     )
 
                     // Auto-start foreground service if not running or collector isn't attached yet, passing event via Intent

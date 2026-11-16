@@ -58,7 +58,7 @@ object PaymentParser {
     // =========================================================================
 
     private val NAME_FIRST_PATTERN = Regex(
-        """^([\p{L}\p{M}0-9\s.]{2,40}?)(?:\s*\([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\))?\s+(?:has\s+)?(?:sent|paid)\s+(?:you\s+)?(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)""",
+        """(?:^|[\n\r]|(?<=\s))([\p{L}\p{M}0-9\s.]{2,40}?)(?:\s*\([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\))?\s+(?:has\s+)?(?:sent|paid)\s+(?:you\s+)?(?:₹\s*|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)""",
         RegexOption.IGNORE_CASE
     )
 

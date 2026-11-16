@@ -11,6 +11,9 @@ interface DedupDao {
     @Query("SELECT * FROM dedup_records WHERE dedupKey = :key AND expiresAt > :now")
     suspend fun getValidRecord(key: String, now: Long): DedupEntity?
 
+    @Query("SELECT * FROM dedup_records WHERE amount = :amount AND expiresAt > :now")
+    suspend fun getValidRecordsByAmount(amount: Double, now: Long): List<DedupEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRecord(record: DedupEntity)
 

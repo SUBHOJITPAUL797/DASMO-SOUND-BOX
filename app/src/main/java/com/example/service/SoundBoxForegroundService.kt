@@ -141,6 +141,8 @@ class SoundBoxForegroundService : LifecycleService() {
                     refId = intent.getStringExtra(EXTRA_REF_ID),
                     rawText = intent.getStringExtra(EXTRA_RAW_TEXT) ?: ""
                 )
+                // Consume extra so if the same Intent is re-delivered, it does not re-process
+                intent.removeExtra(EXTRA_AMOUNT)
                 paymentChannel.trySend(event)
             }
         }
