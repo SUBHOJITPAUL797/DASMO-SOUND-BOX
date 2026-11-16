@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -114,9 +115,10 @@ fun AppNavGraph() {
     }
 
     val showBottomBar = currentDestination?.route in items.map { it.route }
+    val isKioskRoute = currentDestination?.route == Routes.KIOSK
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = if (isKioskRoute) Color.Black else MaterialTheme.colorScheme.background,
         bottomBar = {
             if (showBottomBar) {
                 Column(

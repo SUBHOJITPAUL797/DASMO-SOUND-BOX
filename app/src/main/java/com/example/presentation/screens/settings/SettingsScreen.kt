@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +65,7 @@ fun SettingsScreen(
     onNavigateToIntruderLogs: () -> Unit = {}
 ) {
     val settings by viewModel.uiState.collectAsStateWithLifecycle()
+    val isSettingsLoaded by viewModel.isSettingsLoaded.collectAsStateWithLifecycle()
     val availableVoices by viewModel.availableVoices.collectAsStateWithLifecycle()
     val isPlayingPreview by viewModel.isPlayingPreview.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
@@ -87,6 +89,9 @@ fun SettingsScreen(
     var shopUpiText by remember { mutableStateOf("") }
     var minAmountText by remember { mutableStateOf("") }
     var isProfileLoaded by remember { mutableStateOf(false) }
+    var lastSyncedShopName by remember { mutableStateOf<String?>(null) }
+    var lastSyncedShopUpi by remember { mutableStateOf<String?>(null) }
+    var lastSyncedMinAmount by remember { mutableStateOf<Double?>(null) }
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -105,25 +110,95 @@ fun SettingsScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(settings.shopName, settings.shopUpiId, settings.minAmountThreshold) {
+    LaunchedEffect(isSettingsLoaded, settings.shopName, settings.shopUpiId, settings.minAmountThreshold) {
+        if (!isSettingsLoaded) return@LaunchedEffect
+        val formattedMin = if (settings.minAmountThreshold > 0) {
+            if (settings.minAmountThreshold % 1.0 == 0.0) settings.minAmountThreshold.toInt().toString()
+            else settings.minAmountThreshold.toString()
+        } else ""
+
         if (!isProfileLoaded) {
             shopNameText = settings.shopName
             shopUpiText = settings.shopUpiId
-            minAmountText = if (settings.minAmountThreshold > 0) {
-                if (settings.minAmountThreshold % 1.0 == 0.0) settings.minAmountThreshold.toInt().toString()
-                else settings.minAmountThreshold.toString()
-            } else ""
+            minAmountText = formattedMin
+            lastSyncedShopName = settings.shopName
+            lastSyncedShopUpi = settings.shopUpiId
+            lastSyncedMinAmount = settings.minAmountThreshold
             isProfileLoaded = true
+        } else {
+            if (shopNameText.trim() == lastSyncedShopName) {
+                shopNameText = settings.shopName
+            }
+            lastSyncedShopName = settings.shopName
+
+            if (shopUpiText.trim() == lastSyncedShopUpi) {
+                shopUpiText = settings.shopUpiId
+            }
+            lastSyncedShopUpi = settings.shopUpiId
+
+            val localMin = minAmountText.toDoubleOrNull() ?: 0.0
+            if (localMin == lastSyncedMinAmount) {
+                minAmountText = formattedMin
+            }
+            lastSyncedMinAmount = settings.minAmountThreshold
+        }
+    }
+
+    // Debounced auto-save for Shop Name & UPI ID so edits never vanish when leaving Settings
+    LaunchedEffect(isProfileLoaded, shopNameText, shopUpiText) {
+        if (isProfileLoaded) {
+            delay(350L)
+            val trimmedName = shopNameText.trim()
+            val trimmedUpi = shopUpiText.trim()
+            val hasNameChange = trimmedName.isNotEmpty() && trimmedName != settings.shopName
+            val hasUpiChange = trimmedUpi != settings.shopUpiId
+            if (hasNameChange || hasUpiChange) {
+                if (hasNameChange) lastSyncedShopName = trimmedName
+                if (hasUpiChange) lastSyncedShopUpi = trimmedUpi
+                viewModel.flushMerchantProfile(
+                    upiId = trimmedUpi,
+                    shopName = trimmedName,
+                    minAmountThreshold = minAmountText.toDoubleOrNull() ?: settings.minAmountThreshold
+                )
+            }
         }
     }
 
     // Debounced persistence for minAmountText without clobbering cursor/decimals
-    LaunchedEffect(minAmountText) {
+    LaunchedEffect(isProfileLoaded, minAmountText) {
         if (isProfileLoaded) {
             delay(450L)
             val parsed = minAmountText.toDoubleOrNull() ?: 0.0
             if (parsed != settings.minAmountThreshold) {
+                lastSyncedMinAmount = parsed
                 viewModel.updateMinAmountThreshold(parsed)
+            }
+        }
+    }
+
+    // Flush any unsaved typing immediately if user navigates back before debounce fires
+    val latestShopName by rememberUpdatedState(shopNameText)
+    val latestShopUpi by rememberUpdatedState(shopUpiText)
+    val latestMinAmount by rememberUpdatedState(minAmountText)
+    val latestLoaded by rememberUpdatedState(isProfileLoaded)
+    val latestSettings by rememberUpdatedState(settings)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (latestLoaded) {
+                val trimmedName = latestShopName.trim()
+                val trimmedUpi = latestShopUpi.trim()
+                val parsedMin = latestMinAmount.toDoubleOrNull() ?: 0.0
+                if ((trimmedName.isNotEmpty() && trimmedName != latestSettings.shopName) ||
+                    trimmedUpi != latestSettings.shopUpiId ||
+                    parsedMin != latestSettings.minAmountThreshold
+                ) {
+                    viewModel.flushMerchantProfile(
+                        upiId = trimmedUpi,
+                        shopName = trimmedName,
+                        minAmountThreshold = parsedMin
+                    )
+                }
             }
         }
     }
@@ -253,8 +328,15 @@ fun SettingsScreen(
                                     minAmountText = minAmountText,
                                     onMinAmountChange = { minAmountText = it },
                                     onSave = {
-                                        viewModel.updateShopDetails(shopUpiText.trim(), shopNameText.trim())
+                                        val cleanShop = shopNameText.trim().ifBlank { "My Shop" }
+                                        val cleanUpi = shopUpiText.trim()
                                         val amt = minAmountText.toDoubleOrNull() ?: 0.0
+                                        shopNameText = cleanShop
+                                        shopUpiText = cleanUpi
+                                        lastSyncedShopName = cleanShop
+                                        lastSyncedShopUpi = cleanUpi
+                                        lastSyncedMinAmount = amt
+                                        viewModel.updateShopDetails(cleanUpi, cleanShop)
                                         viewModel.updateMinAmountThreshold(amt)
                                         Toast.makeText(context, "Merchant profile saved", Toast.LENGTH_SHORT).show()
                                     }

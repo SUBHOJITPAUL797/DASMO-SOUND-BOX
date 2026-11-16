@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 
 data class HomeUiState(
+    val isLoaded: Boolean = false,
     val appSettings: AppSettings = AppSettings(),
     val todayEarnings: Double = 0.0,
     val todayCount: Int = 0,
@@ -50,6 +51,7 @@ class HomeViewModel : ViewModel() {
         val liveActivity = transactions.take(15)
         
         HomeUiState(
+            isLoaded = true,
             appSettings = settings,
             todayEarnings = todayEarnings,
             todayCount = todayCount,
@@ -60,6 +62,12 @@ class HomeViewModel : ViewModel() {
             recentTransactions = transactions
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeUiState())
+
+    fun markKioskBatteryNoticeSeen() {
+        viewModelScope.launch(kotlinx.coroutines.NonCancellable) {
+            settingsRepo.updateSettings { it.copy(hasSeenKioskBatteryNotice = true) }
+        }
+    }
     
     fun toggleServiceState(isEnabled: Boolean) {
         viewModelScope.launch {

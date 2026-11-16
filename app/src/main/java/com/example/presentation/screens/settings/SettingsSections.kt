@@ -289,7 +289,9 @@ fun MerchantSettingsSection(
                 label = { Text("Shop / Business Name") },
                 supportingText = { Text("Shown on Counter QR & PDF Statements") },
                 shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("shop_name_input"),
                 singleLine = true
             )
 
@@ -299,7 +301,9 @@ fun MerchantSettingsSection(
                 label = { Text("Shop UPI ID (for Counter QR & Reminders)") },
                 placeholder = { Text("merchant@okhdfcbank") },
                 shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("shop_upi_input"),
                 singleLine = true
             )
 

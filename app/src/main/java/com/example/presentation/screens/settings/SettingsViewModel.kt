@@ -7,11 +7,16 @@ import com.example.di.AppModule
 import com.example.domain.model.AppSettings
 import com.example.util.TonePreset
 import com.example.util.VoiceOption
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -20,9 +25,18 @@ import java.util.concurrent.atomic.AtomicInteger
 class SettingsViewModel : ViewModel() {
     private val settingsRepo = AppModule.settingsRepository!!
     private val ttsEngine = AppModule.ttsEngine!!
+    private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _isSettingsLoaded = MutableStateFlow(false)
+    val isSettingsLoaded: StateFlow<Boolean> = _isSettingsLoaded.asStateFlow()
 
     val uiState: StateFlow<AppSettings> = settingsRepo.getSettings()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSettings())
+        .onEach { _isSettingsLoaded.value = true }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = settingsRepo.getLatestSettings()
+        )
 
     private val _availableVoices = MutableStateFlow<List<VoiceOption>>(emptyList())
     val availableVoices: StateFlow<List<VoiceOption>> = _availableVoices.asStateFlow()
@@ -108,11 +122,33 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun updateMinAmountThreshold(threshold: Double) {
-        viewModelScope.launch { settingsRepo.updateSettings { it.copy(minAmountThreshold = threshold) } }
+        persistenceScope.launch(NonCancellable) {
+            settingsRepo.updateSettings { it.copy(minAmountThreshold = threshold) }
+        }
     }
 
     fun updateShopDetails(upiId: String, shopName: String) {
-        viewModelScope.launch { settingsRepo.updateSettings { it.copy(shopUpiId = upiId, shopName = shopName) } }
+        val cleanUpi = upiId.trim()
+        val cleanShopName = shopName.trim().ifBlank { "My Shop" }
+        persistenceScope.launch(NonCancellable) {
+            settingsRepo.updateSettings {
+                it.copy(shopUpiId = cleanUpi, shopName = cleanShopName)
+            }
+        }
+    }
+
+    fun flushMerchantProfile(upiId: String, shopName: String, minAmountThreshold: Double) {
+        val cleanUpi = upiId.trim()
+        val cleanShopName = shopName.trim()
+        persistenceScope.launch(NonCancellable) {
+            settingsRepo.updateSettings { current ->
+                current.copy(
+                    shopUpiId = cleanUpi,
+                    shopName = if (cleanShopName.isNotEmpty()) cleanShopName else current.shopName,
+                    minAmountThreshold = minAmountThreshold
+                )
+            }
+        }
     }
 
     fun updateSmsDetection(enabled: Boolean) {

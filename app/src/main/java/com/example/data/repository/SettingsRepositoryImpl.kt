@@ -15,18 +15,25 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
+import java.util.concurrent.atomic.AtomicLong
+
 class SettingsRepositoryImpl(private val context: Context) : SettingsRepository {
 
     private val _cachedSettings = MutableStateFlow(AppSettings())
     val cachedSettings = _cachedSettings.asStateFlow()
+    private val writeEpoch = AtomicLong(0)
 
     init {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 context.dataStore.data.collect { preferences ->
-                    _cachedSettings.value = mapPreferencesToAppSettings(preferences)
+                    val epochAtEmission = writeEpoch.get()
+                    val mapped = mapPreferencesToAppSettings(preferences)
+                    if (writeEpoch.get() == epochAtEmission) {
+                        _cachedSettings.value = mapped
+                    }
                 }
-            } catch (e: Throwable) {
+            } catch (_: Throwable) {
                 // Keep default or current cached settings
             }
         }
@@ -73,7 +80,8 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
             appLockPattern = preferences[PreferencesKeys.APP_LOCK_PATTERN] ?: "",
             appLockPassword = preferences[PreferencesKeys.APP_LOCK_PASSWORD] ?: "",
             lockedAppPackages = preferences[PreferencesKeys.LOCKED_APP_PACKAGES] ?: emptySet(),
-            intruderSelfieEnabled = preferences[PreferencesKeys.INTRUDER_SELFIE_ENABLED] ?: true
+            intruderSelfieEnabled = preferences[PreferencesKeys.INTRUDER_SELFIE_ENABLED] ?: true,
+            hasSeenKioskBatteryNotice = preferences[PreferencesKeys.HAS_SEEN_KIOSK_BATTERY_NOTICE] ?: false
         )
     }
 
@@ -84,10 +92,10 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
     }
 
     override suspend fun updateSettings(transform: suspend (AppSettings) -> AppSettings) {
+        writeEpoch.incrementAndGet()
         context.dataStore.edit { preferences ->
             val current = mapPreferencesToAppSettings(preferences)
             val updated = transform(current)
-            _cachedSettings.value = updated
             preferences[PreferencesKeys.IS_ENABLED] = updated.isEnabled
             preferences[PreferencesKeys.LANGUAGE] = updated.language
             preferences[PreferencesKeys.SPEECH_RATE] = updated.speechRate
@@ -124,51 +132,80 @@ class SettingsRepositoryImpl(private val context: Context) : SettingsRepository 
             preferences[PreferencesKeys.APP_LOCK_PASSWORD] = updated.appLockPassword
             preferences[PreferencesKeys.LOCKED_APP_PACKAGES] = updated.lockedAppPackages
             preferences[PreferencesKeys.INTRUDER_SELFIE_ENABLED] = updated.intruderSelfieEnabled
+            preferences[PreferencesKeys.HAS_SEEN_KIOSK_BATTERY_NOTICE] = updated.hasSeenKioskBatteryNotice
+            _cachedSettings.value = updated
         }
     }
 
     override suspend fun updateIsEnabled(enabled: Boolean) {
-        _cachedSettings.value = _cachedSettings.value.copy(isEnabled = enabled)
-        context.dataStore.edit { it[PreferencesKeys.IS_ENABLED] = enabled }
+        writeEpoch.incrementAndGet()
+        context.dataStore.edit {
+            it[PreferencesKeys.IS_ENABLED] = enabled
+            _cachedSettings.value = mapPreferencesToAppSettings(it)
+        }
     }
 
     override suspend fun updateHasCompletedOnboarding(completed: Boolean) {
-        _cachedSettings.value = _cachedSettings.value.copy(hasCompletedOnboarding = completed)
-        context.dataStore.edit { it[PreferencesKeys.HAS_COMPLETED_ONBOARDING] = completed }
+        writeEpoch.incrementAndGet()
+        context.dataStore.edit {
+            it[PreferencesKeys.HAS_COMPLETED_ONBOARDING] = completed
+            _cachedSettings.value = mapPreferencesToAppSettings(it)
+        }
     }
 
     override suspend fun updateAppLockEnabled(enabled: Boolean) {
-        _cachedSettings.value = _cachedSettings.value.copy(appLockEnabled = enabled)
-        context.dataStore.edit { it[PreferencesKeys.APP_LOCK_ENABLED] = enabled }
+        writeEpoch.incrementAndGet()
+        context.dataStore.edit {
+            it[PreferencesKeys.APP_LOCK_ENABLED] = enabled
+            _cachedSettings.value = mapPreferencesToAppSettings(it)
+        }
     }
 
     override suspend fun updateAppLockType(type: String) {
-        _cachedSettings.value = _cachedSettings.value.copy(appLockType = type)
-        context.dataStore.edit { it[PreferencesKeys.APP_LOCK_TYPE] = type }
+        writeEpoch.incrementAndGet()
+        context.dataStore.edit {
+            it[PreferencesKeys.APP_LOCK_TYPE] = type
+            _cachedSettings.value = mapPreferencesToAppSettings(it)
+        }
     }
 
     override suspend fun updateAppLockPin(pin: String) {
-        _cachedSettings.value = _cachedSettings.value.copy(appLockPin = pin)
-        context.dataStore.edit { it[PreferencesKeys.APP_LOCK_PIN] = pin }
+        writeEpoch.incrementAndGet()
+        context.dataStore.edit {
+            it[PreferencesKeys.APP_LOCK_PIN] = pin
+            _cachedSettings.value = mapPreferencesToAppSettings(it)
+        }
     }
 
     override suspend fun updateAppLockPattern(pattern: String) {
-        _cachedSettings.value = _cachedSettings.value.copy(appLockPattern = pattern)
-        context.dataStore.edit { it[PreferencesKeys.APP_LOCK_PATTERN] = pattern }
+        writeEpoch.incrementAndGet()
+        context.dataStore.edit {
+            it[PreferencesKeys.APP_LOCK_PATTERN] = pattern
+            _cachedSettings.value = mapPreferencesToAppSettings(it)
+        }
     }
 
     override suspend fun updateAppLockPassword(password: String) {
-        _cachedSettings.value = _cachedSettings.value.copy(appLockPassword = password)
-        context.dataStore.edit { it[PreferencesKeys.APP_LOCK_PASSWORD] = password }
+        writeEpoch.incrementAndGet()
+        context.dataStore.edit {
+            it[PreferencesKeys.APP_LOCK_PASSWORD] = password
+            _cachedSettings.value = mapPreferencesToAppSettings(it)
+        }
     }
 
     override suspend fun updateLockedAppPackages(packages: Set<String>) {
-        _cachedSettings.value = _cachedSettings.value.copy(lockedAppPackages = packages)
-        context.dataStore.edit { it[PreferencesKeys.LOCKED_APP_PACKAGES] = packages }
+        writeEpoch.incrementAndGet()
+        context.dataStore.edit {
+            it[PreferencesKeys.LOCKED_APP_PACKAGES] = packages
+            _cachedSettings.value = mapPreferencesToAppSettings(it)
+        }
     }
 
     override suspend fun updateIntruderSelfieEnabled(enabled: Boolean) {
-        _cachedSettings.value = _cachedSettings.value.copy(intruderSelfieEnabled = enabled)
-        context.dataStore.edit { it[PreferencesKeys.INTRUDER_SELFIE_ENABLED] = enabled }
+        writeEpoch.incrementAndGet()
+        context.dataStore.edit {
+            it[PreferencesKeys.INTRUDER_SELFIE_ENABLED] = enabled
+            _cachedSettings.value = mapPreferencesToAppSettings(it)
+        }
     }
 }

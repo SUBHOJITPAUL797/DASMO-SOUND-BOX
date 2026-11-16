@@ -36,5 +36,6 @@ data class AppSettings(
     val appLockPattern: String = "",
     val appLockPassword: String = "",
     val lockedAppPackages: Set<String> = emptySet(),
-    val intruderSelfieEnabled: Boolean = true
+    val intruderSelfieEnabled: Boolean = true,
+    val hasSeenKioskBatteryNotice: Boolean = false
 )

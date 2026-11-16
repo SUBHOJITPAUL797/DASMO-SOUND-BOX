@@ -52,4 +52,5 @@ object PreferencesKeys {
     val APP_LOCK_PASSWORD = stringPreferencesKey("app_lock_password")
     val LOCKED_APP_PACKAGES = stringSetPreferencesKey("locked_app_packages")
     val INTRUDER_SELFIE_ENABLED = booleanPreferencesKey("intruder_selfie_enabled")
+    val HAS_SEEN_KIOSK_BATTERY_NOTICE = booleanPreferencesKey("has_seen_kiosk_battery_notice")
 }
