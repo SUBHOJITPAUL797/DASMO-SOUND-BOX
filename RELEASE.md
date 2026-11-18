@@ -32,11 +32,11 @@
 > The In-App Updater parses the `versionCode`, tag, and changelog headers automatically.
 
 ```markdown
-# 🔊 DASMO Sound Box v1.0.6 — App Lock (Pattern & PIN) & Front-Camera Intruder Selfie Shield
+# 🔊 DASMO Sound Box v1.0.11 — Production Release & Architecture Polish
 
 ### 🏷️ Metadata
-- **Version:** `v1.0.6`
-- **versionCode:** `7`
+- **Version:** `v1.0.11`
+- **versionCode:** `12`
 - **Package:** `com.aistudio.soundbox.dsmo`
 - **Channel:** Production (Stable)
 - **Minimum OS:** Android 7.0 (API Level 24)
@@ -47,23 +47,19 @@
 
 ### 🚀 Highlights & What's New
 
-- **🔲 App Lock with Pattern & PIN Options:**
-  - **Pattern Lock:** 3x3 interactive dot grid with smooth gesture lines, vibration tick on dot connection, and error shake animation.
-  - **PIN Lock:** 4-digit numeric keypad with circular indicators and tactile feedback.
-  - **Flexible Setup:** Switch between Pattern and PIN with interactive double-confirm setup dialogs.
-  - **App Protection:** Lock DASMO Sound Box itself, all UPI payment apps (PhonePe, Paytm, Google Pay, BHIM, Cred, etc.), or any installed application on the device.
+- **🔐 Robust Security & Multi-Method App Lock:**
+  - Full support for PIN, Pattern, and Password authentication with graceful failover.
+  - Intruder selfie capture on failed unlock attempts via Camera2 without opening UI.
+  - Hardened state transitions to prevent accidental lockouts.
 
-- **📸 Silent Front-Camera Intruder Selfie Capture:**
-  - On any incorrect Pattern or PIN attempt, the front camera automatically and silently captures a photo of the intruder using the Camera2 API.
-  - Preserves proper sensor orientation and saves securely to app storage without opening any visible camera interface.
+- **🔊 Clean UPI Audio Announcement Pipeline:**
+  - Real-time TTS announcement with customizable prefix, suffix, and language options.
+  - Cross-channel deduplication preventing double-announcements from simultaneous UPI notifications and Bank SMS.
+  - Intelligent chat-style notification parsing (GPay, WhatsApp) to only announce the latest incoming transaction.
 
-- **🚨 Intruder Incident Logs Screen:**
-  - View all unauthorized access attempts in a dedicated security dashboard.
-  - Displays the intruder's selfie photo with full-screen zoom preview.
-  - Shows the attempted app name and app icon (e.g. PhonePe, Paytm, DASMO Sound Box).
-  - Displays the exact date & timestamp of the incident.
-  - One-tap evidence sharing (WhatsApp, etc.) via Android FileProvider and delete/clear controls.
-  - Active home screen security warning banner when unauthorized attempts are detected.
+- **🔋 Kiosk Battery Protection & UI Polish:**
+  - Battery optimization guide notice with persistent user acknowledgment.
+  - High-contrast merchant kiosk display mode with instant QR generation.
 
 ---
 
@@ -71,7 +67,7 @@
 
 | File | Type | Target Architecture | Size | Checksum (SHA-256) |
 | :--- | :--- | :--- | :--- | :--- |
-| [`dasmo-soundbox-v1.0.6.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.6/dasmo-soundbox-v1.0.6.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 15.3 MB | `94EBCDCC885729F32FA8BD78018F726315554CC1EA161834F5C05B03D631A141` |
+| [`dasmo-soundbox-v1.0.11.apk`](https://github.com/SUBHOJITPAUL797/DASMO-SOUND-BOX/releases/download/v1.0.11/dasmo-soundbox-v1.0.11.apk) | Production APK | Universal (arm64-v8a, armeabi-v7a, x86_64) | 18.26 MB | `68f6c830d0290a870272463af6267d5966c47d023d6f5b993b15d815f10a3108` |
 ```
 
 ### 🛠️ Detailed Changelog
